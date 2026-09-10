@@ -52,14 +52,16 @@ class QdrantStore:
         query_filter: Optional[qmodels.Filter] = None,
     ) -> list[qmodels.ScoredPoint]:
         with self._io_lock:
-            return self._client.search(
-                collection_name=settings.QDRANT_COLLECTION,
-                query_vector=query_vector,
-                limit=top_k,
-                query_filter=query_filter,
-                with_payload=True,
-                with_vectors=False,
+            response = self._client.query_points(
+                collection_name = settings.QDRANT_COLLECTION,
+                query = query_vector,
+                limit = top_k,
+                query_filter = query_filter,
+                with_payload = True,
+                with_vectors = False,
             )
+            return list(response.points)
+            
 
     def scroll_by_payload(
         self,

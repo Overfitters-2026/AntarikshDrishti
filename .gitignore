@@ -1,6 +1,10 @@
-﻿data/qdrant/.lock
 data/qdrant/
 data/*.db
 storage/tiles/*
 storage/raw_geotiff/*
 .env
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
