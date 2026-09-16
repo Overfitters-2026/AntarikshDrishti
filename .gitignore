@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Python
 __pycache__/
 *.py[cod]
@@ -40,3 +41,15 @@ lerna-debug.log*
 Thumbs.db
 .vscode/
 .idea/
+=======
+data/qdrant/
+data/*.db
+storage/tiles/*
+storage/raw_geotiff/*
+.env
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+>>>>>>> 5638a8e8393865d8d5b995a9ba399111fcee9b9b

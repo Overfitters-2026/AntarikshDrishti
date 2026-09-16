@@ -1,0 +1,26 @@
+{
+  "cSpell.words": [
+    "aiosqlite",
+    "embedder",
+    "fastapi",
+    "fromarray",
+    "Geospatial",
+    "geotiff",
+    "keepdim",
+    "linalg",
+    "newaxis",
+    "numpy",
+    "OPENCLIP",
+    "pycache",
+    "pydantic",
+    "qdrant",
+    "qmodels",
+    "rasterio",
+    "scikit",
+    "scipy",
+    "skimage",
+    "torchvision",
+    "uvicorn",
+    "venv"
+  ]
+}

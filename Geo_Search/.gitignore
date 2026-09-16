@@ -1,0 +1,14 @@
+﻿venv/
+__pycache__/
+*.pyc
+.env
+data/qdrant/
+storage/tiles/*.png
+storage/tiles/*.jpg
+storage/raw_geotiff/*
+!storage/raw_geotiff/.gitkeep
+!storage/tiles/.gitkeep
+
+data/
+*.db
+
