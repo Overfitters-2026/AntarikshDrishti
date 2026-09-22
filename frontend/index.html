@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Geo-Semantic Satellite Analysis Platform (Offline MVP)</title>
+  <link rel="stylesheet" href="/leaflet.css" />
+  <link rel="stylesheet" href="/style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+  <!-- Top Navigation Header -->
+  <header class="top-nav">
+    <div class="brand">
+      <div class="brand-icon">🛰️</div>
+      <div class="brand-text">
+        <h1>Geo-Semantic Earth Observation</h1>
+        <span class="subtext">SIH 26227 Multi-Temporal Change & Semantic Retrieval</span>
+      </div>
+    </div>
+    <nav class="nav-tabs">
+      <button class="tab-btn active" data-tab="search-tab">🔍 Semantic Search</button>
+      <button class="tab-btn" data-tab="change-tab">⚡ Change Detection & Swipe</button>
+      <button class="tab-btn" data-tab="review-tab">📋 Analyst Review Queue <span class="badge" id="queue-badge">0</span></button>
+      <button class="tab-btn" data-tab="discovery-tab">🌌 Unsupervised Clusters</button>
+    </nav>
+    <div class="status-panel">
+      <span class="status-indicator online"></span>
+      <span class="status-text" id="engine-status">Offline Engine Active</span>
+    </div>
+  </header>
+
+  <!-- Main Application Container -->
+  <main class="main-content">
+    
+    <!-- Tab 1: Semantic Search & Spatial Map -->
+    <section id="search-tab" class="tab-content active">
+      <div class="panel-layout">
+        <!-- Sidebar Controls -->
+        <aside class="sidebar">
+          <div class="card">
+            <h3>Natural Language Query</h3>
+            <p class="card-desc">Search satellite tiles using semantic concepts.</p>
+            <div class="search-box">
+              <input type="text" id="search-input" placeholder="e.g. active building construction, forest clearing..." />
+              <button id="btn-search" class="btn btn-primary">Search</button>
+            </div>
+            <div class="quick-chips">
+              <span class="chip" data-query="active building construction">🏗️ Construction</span>
+              <span class="chip" data-query="cleared forest deforestation">🌲 Clearance</span>
+              <span class="chip" data-query="water body river lake">💧 Water Body</span>
+              <span class="chip" data-query="dense residential urban">🏘️ Urban</span>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="flex-between">
+              <h3>Search Results</h3>
+              <span class="text-muted" id="search-count">0 hits</span>
+            </div>
+            <div id="search-results-list" class="results-list">
+              <div class="empty-state">Enter a prompt or select a chip to search indexed satellite tiles.</div>
+            </div>
+          </div>
+        </aside>
+
+        <!-- Interactive Map Canvas -->
+        <div class="map-container">
+          <div id="map" class="map-view"></div>
+          <div class="map-overlay-badge" id="map-legend">
+            <div class="legend-item"><span class="color-dot high"></span> High Relevance (> 0.70)</div>
+            <div class="legend-item"><span class="color-dot med"></span> Moderate (0.50 - 0.70)</div>
+            <div class="legend-item"><span class="color-dot change"></span> Detected Change Area</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tab 2: Change Detection & Split-Screen Swipe Viewer -->
+    <section id="change-tab" class="tab-content">
+      <div class="change-layout">
+        <!-- Change Trigger Panel -->
+        <aside class="change-sidebar">
+          <div class="card">
+            <h3>Multi-Temporal Pair Analysis</h3>
+            <p class="card-desc">Execute change pipeline over geo-intersecting chips with cloud QA & coregistration validation.</p>
+            
+            <div class="form-group">
+              <label>T1 Baseline Date</label>
+              <input type="text" id="t1-date-input" value="2024-05-15" />
+            </div>
+            <div class="form-group">
+              <label>T2 Observation Date</label>
+              <input type="text" id="t2-date-input" value="2024-09-20" />
+            </div>
+            <div class="form-group">
+              <label>Embedding Drift Threshold (<span id="drift-val">0.18</span>)</label>
+              <input type="range" id="drift-slider" min="0.05" max="0.50" step="0.01" value="0.18" />
+            </div>
+
+            <button id="btn-run-change" class="btn btn-accent full-width">⚡ Run Change Detection</button>
+          </div>
+
+          <div class="card">
+            <div class="flex-between">
+              <h3>Detected Change Candidates</h3>
+              <span class="text-muted" id="change-cand-count">0 detected</span>
+            </div>
+            <div id="change-candidates-list" class="results-list">
+              <div class="empty-state">Run change detection to inspect candidate pairs.</div>
+            </div>
+          </div>
+        </aside>
+
+        <!-- Split-Screen Swipe Comparison Area -->
+        <div class="swipe-area">
+          <div class="swipe-header">
+            <div class="chip-meta">
+              <span class="tag-pill" id="swipe-category-tag">Select a Tile Pair</span>
+              <span class="meta-item">Confidence: <strong id="swipe-confidence">-</strong></span>
+              <span class="meta-item">Drift: <strong id="swipe-drift">-</strong></span>
+              <span class="meta-item">QA Pass: <strong id="swipe-qa" class="text-success">PASS</strong></span>
+            </div>
+            <div class="swipe-actions">
+              <button id="btn-confirm-swipe" class="btn btn-sm btn-success">✓ Confirm Change</button>
+              <button id="btn-reject-swipe" class="btn btn-sm btn-danger">✗ Reject / False Alarm</button>
+            </div>
+          </div>
+
+          <div class="split-viewer-container" id="split-viewer">
+            <!-- T1 Before Image Layer -->
+            <div class="image-layer layer-before">
+              <img id="img-before" src="" alt="T1 Baseline" />
+              <div class="layer-label label-before">T1: Before (<span id="label-t1-date">Baseline</span>)</div>
+            </div>
+            <!-- T2 After Image Layer (Clipped by slider) -->
+            <div class="image-layer layer-after" id="layer-after-wrap">
+              <img id="img-after" src="" alt="T2 Observation" />
+              <div class="layer-label label-after">T2: After (<span id="label-t2-date">Observation</span>)</div>
+            </div>
+            <!-- Interactive Draggable Split Bar -->
+            <div class="split-slider-handle" id="slider-handle">
+              <div class="handle-line"></div>
+              <div class="handle-grip">⟷</div>
+            </div>
+          </div>
+
+          <!-- Bottom Provenance Card -->
+          <div class="provenance-banner" id="swipe-provenance">
+            <div class="prov-col"><strong>Sensor:</strong> <span id="prov-sensor">Sentinel-2 MSI</span></div>
+            <div class="prov-col"><strong>Dates:</strong> <span id="prov-dates">T1 vs T2</span></div>
+            <div class="prov-col"><strong>Model Hash:</strong> <code id="prov-model">sha256:e3b0c442...</code></div>
+            <div class="prov-col"><strong>Pipeline:</strong> <span>v1.0.0 (100% Offline)</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tab 3: Analyst Review Queue -->
+    <section id="review-tab" class="tab-content">
+      <div class="card full-width">
+        <div class="queue-toolbar">
+          <div class="queue-filters">
+            <button class="filter-btn active" data-status="">All Items</button>
+            <button class="filter-btn" data-status="PENDING">Pending Review</button>
+            <button class="filter-btn" data-status="CONFIRMED">Confirmed</button>
+            <button class="filter-btn" data-status="REJECTED">Rejected</button>
+          </div>
+          <button id="btn-refresh-queue" class="btn btn-secondary">🔄 Refresh Queue</button>
+        </div>
+
+        <div class="table-responsive">
+          <table class="queue-table">
+            <thead>
+              <tr>
+                <th>Event ID</th>
+                <th>Category</th>
+                <th>Confidence</th>
+                <th>Drift</th>
+                <th>QA Pass</th>
+                <th>Dates (T1 ➔ T2)</th>
+                <th>Provenance Hash</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="queue-tbody">
+              <tr>
+                <td colspan="9" class="text-center text-muted">Loading review queue...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tab 4: Unsupervised Discovery & Clusters -->
+    <section id="discovery-tab" class="tab-content">
+      <div class="discovery-layout">
+        <div class="card discovery-sidebar">
+          <h3>Unsupervised Spatial Clustering</h3>
+          <p class="card-desc">Discover emerging spatial patterns and land-use shifts across tile embeddings without manual annotations.</p>
+          
+          <div class="form-group">
+            <label>Clustering Method</label>
+            <select id="cluster-method">
+              <option value="kmeans">K-Means (Centroid Partitioning)</option>
+              <option value="hdbscan">HDBSCAN (Density-Based)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Number of Clusters (<span id="k-clusters-val">5</span>)</label>
+            <input type="range" id="k-clusters" min="2" max="10" value="5" />
+          </div>
+
+          <button id="btn-run-cluster" class="btn btn-primary full-width">🌌 Compute Embeddings Clusters</button>
+
+          <div class="cluster-summary-list" id="cluster-summary-list">
+            <!-- Cluster Cards -->
+          </div>
+        </div>
+
+        <div class="card discovery-main">
+          <h3>2D Embedding Manifold (PCA Projection)</h3>
+          <p class="card-desc">Interactive 2D visualization of high-dimensional satellite embeddings grouped into semantic clusters.</p>
+          <div class="scatter-container">
+            <canvas id="scatter-canvas" width="700" height="500"></canvas>
+            <div class="scatter-tooltip" id="scatter-tooltip"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Provenance Details Modal -->
+  <div class="modal" id="provenance-modal">
+    <div class="modal-backdrop"></div>
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>🔍 Tamper-Evident Processing Provenance</h3>
+        <button class="modal-close" id="btn-close-modal">✕</button>
+      </div>
+      <div class="modal-body" id="modal-prov-content">
+        <!-- Injected JSON / structured list -->
+      </div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
