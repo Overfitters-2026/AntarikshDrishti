@@ -91,7 +91,7 @@ async def ingest_geotiff(
         }
         points.append(
             qmodels.PointStruct(
-                id=make_point_id(),
+                id=make_point_id(t.tile_id),
                 vector=embeddings[i],
                 payload=payload,
             )
@@ -208,4 +208,124 @@ async def reset_all_data(store: QdrantStore = Depends(get_qdrant_store)):
     return {
         "status": "success",
         "message": "All databases and vector indices cleanly wiped.",
-    }
+    }
+
+
+@router.get("/qdrant-audit")
+async def audit_qdrant_points(store: QdrantStore = Depends(get_qdrant_store)):
+    """
+    Audit all points currently stored in Qdrant:
+    identifies non-mumbai test artifacts and duplicate points.
+    """
+    from qdrant_client.http import models as qmodels
+
+    all_points = []
+    offset = None
+    while True:
+        records, next_offset = store._client.scroll(
+            collection_name=store.collection_name,
+            limit=250,
+            offset=offset,
+            with_payload=True,
+            with_vectors=False,
+        )
+        all_points.extend(records)
+        if next_offset is None:
+            break
+        offset = next_offset
+
+    total_points = len(all_points)
+    mumbai_points = []
+    stale_test_points = []
+    duplicate_points = []
+    seen_tile_ids = set()
+
+    for p in all_points:
+        payload = p.payload or {}
+        tid = str(payload.get("tile_id", ""))
+        point_info = {
+            "point_id": str(p.id),
+            "tile_id": tid,
+            "date": payload.get("date"),
+            "sensor": payload.get("sensor"),
+            "image_path": payload.get("image_path"),
+        }
+
+        if not tid.startswith("mumbai_"):
+            stale_test_points.append(point_info)
+        elif tid in seen_tile_ids:
+            duplicate_points.append(point_info)
+        else:
+            seen_tile_ids.add(tid)
+            mumbai_points.append(point_info)
+
+    return {
+        "status": "success",
+        "total_points": total_points,
+        "valid_mumbai_tiles_count": len(mumbai_points),
+        "stale_test_points_count": len(stale_test_points),
+        "duplicate_points_count": len(duplicate_points),
+        "stale_test_points": stale_test_points,
+        "duplicate_points": duplicate_points,
+    }
+
+
+@router.post("/clean-qdrant")
+async def clean_qdrant_points(store: QdrantStore = Depends(get_qdrant_store)):
+    """
+    Purges stale non-mumbai synthetic test points and duplicate tile_id points from Qdrant.
+    Ensures exactly 1 unique point per distinct mumbai_* tile.
+    """
+    from qdrant_client.http import models as qmodels
+
+    all_points = []
+    offset = None
+    while True:
+        records, next_offset = store._client.scroll(
+            collection_name=store.collection_name,
+            limit=250,
+            offset=offset,
+            with_payload=True,
+            with_vectors=False,
+        )
+        all_points.extend(records)
+        if next_offset is None:
+            break
+        offset = next_offset
+
+    total_points = len(all_points)
+    ids_to_delete = []
+    stale_deleted = []
+    dups_deleted = []
+    seen_tile_ids = set()
+
+    for p in all_points:
+        payload = p.payload or {}
+        tid = str(payload.get("tile_id", ""))
+
+        if not tid.startswith("mumbai_"):
+            ids_to_delete.append(p.id)
+            stale_deleted.append({"point_id": str(p.id), "tile_id": tid})
+        elif tid in seen_tile_ids:
+            ids_to_delete.append(p.id)
+            dups_deleted.append({"point_id": str(p.id), "tile_id": tid})
+        else:
+            seen_tile_ids.add(tid)
+
+    if ids_to_delete:
+        store._client.delete(
+            collection_name=store.collection_name,
+            points_selector=qmodels.PointIdsList(points=ids_to_delete),
+        )
+
+    return {
+        "status": "success",
+        "total_points_before": total_points,
+        "total_deleted": len(ids_to_delete),
+        "stale_test_points_deleted": len(stale_deleted),
+        "duplicate_points_deleted": len(dups_deleted),
+        "remaining_unique_mumbai_tiles": len(seen_tile_ids),
+        "stale_deleted_details": stale_deleted,
+        "duplicates_deleted_details": dups_deleted,
+    }
+

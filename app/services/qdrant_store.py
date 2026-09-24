@@ -119,7 +119,9 @@ def get_qdrant_store() -> QdrantStore:
     return _store
 
 
-def make_point_id() -> str:
+def make_point_id(tile_id: Optional[str] = None) -> str:
+    if tile_id:
+        return str(uuid.uuid5(uuid.NAMESPACE_DNS, tile_id))
     return str(uuid.uuid4())
 
 

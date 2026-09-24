@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form, Request
 from pydantic import BaseModel, Field, field_validator
 from qdrant_client.http import models as qmodels
 from app.services.qdrant_store import QdrantStore, get_qdrant_store
@@ -68,16 +68,22 @@ def _build_filter(date: Optional[str], sensor: Optional[str]) -> Optional[qmodel
     return qmodels.Filter(must=must)
 
 
-def _to_hits(scored_points) -> list[SearchHit]:
+def _to_hits(scored_points, limit: Optional[int] = None) -> list[SearchHit]:
     hits: list[SearchHit] = []
+    seen_tile_ids: set[str] = set()
     for sp in scored_points:
         payload = sp.payload or {}
+        tid = str(payload.get("tile_id", ""))
+        if tid and tid in seen_tile_ids:
+            continue
+        if tid:
+            seen_tile_ids.add(tid)
         bbox = payload.get("bbox", {})
         lat, lng = _bbox_center(bbox if isinstance(bbox, dict) else None)
         hits.append(
             SearchHit(
                 score=float(sp.score),
-                tile_id=str(payload.get("tile_id", "")),
+                tile_id=tid,
                 bbox=bbox,
                 date=str(payload.get("date", "")),
                 sensor=str(payload.get("sensor", "")),
@@ -86,6 +92,8 @@ def _to_hits(scored_points) -> list[SearchHit]:
                 lng=lng,
             )
         )
+        if limit is not None and len(hits) >= limit:
+            break
     return hits
 
 
@@ -100,7 +108,7 @@ async def search_by_text(payload: TextSearchRequest) -> SearchResponse:
     scored = await store.run_sync(
         store.search,
         vector,
-        top_k=payload.top_k,
+        top_k=max(payload.top_k * 3, 20),
         query_filter=query_filter,
     )
 
@@ -108,7 +116,7 @@ async def search_by_text(payload: TextSearchRequest) -> SearchResponse:
         mode="text",
         query=payload.query,
         top_k=payload.top_k,
-        results=_to_hits(scored),
+        results=_to_hits(scored, limit=payload.top_k),
     )
 
 
@@ -145,7 +153,7 @@ async def search_by_image_path(payload: ImagePathSearchRequest) -> SearchRespons
     scored = await store.run_sync(
         store.search,
         vector,
-        top_k=payload.top_k,
+        top_k=max(payload.top_k * 3, 20),
         query_filter=query_filter,
     )
 
@@ -153,8 +161,88 @@ async def search_by_image_path(payload: ImagePathSearchRequest) -> SearchRespons
         mode="image",
         query=None,
         top_k=payload.top_k,
-        results=_to_hits(scored),
+        results=_to_hits(scored, limit=payload.top_k),
     )
+
+
+@router.post("/image", response_model=SearchResponse)
+async def search_by_image(request: Request) -> SearchResponse:
+    """
+    Image-to-image semantic visual search querying real Qdrant vectors.
+    Supports:
+      1. Multipart Form Upload: 'file' (UploadFile)
+      2. JSON payload: {"image_path": "...", "top_k": 10}
+      3. JSON payload: {"tile_id": "...", "top_k": 10}
+    """
+    embedder = get_embedder()
+    store = get_qdrant_store()
+    content_type = request.headers.get("content-type", "")
+
+    if "multipart/form-data" in content_type:
+        form = await request.form()
+        uploaded_file = form.get("file")
+        if not uploaded_file or not hasattr(uploaded_file, "read"):
+            raise HTTPException(status_code=400, detail="Missing image file in form data")
+        top_k = int(form.get("top_k", settings.SEARCH_DEFAULT_TOP_K))
+        date = form.get("date")
+        sensor = form.get("sensor")
+        data = await uploaded_file.read()
+        vector = await embedder.embed_image_bytes_async(data)
+        query_filter = _build_filter(str(date) if date else None, str(sensor) if sensor else None)
+        scored = await store.run_sync(
+            store.search,
+            vector,
+            top_k=max(top_k * 3, 20),
+            query_filter=query_filter,
+        )
+        return SearchResponse(
+            mode="image",
+            query=getattr(uploaded_file, "filename", "uploaded_image.png"),
+            top_k=top_k,
+            results=_to_hits(scored, limit=top_k),
+        )
+    else:
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+        image_path = body.get("image_path")
+        tile_id = body.get("tile_id")
+        top_k = int(body.get("top_k", settings.SEARCH_DEFAULT_TOP_K))
+        date = body.get("date")
+        sensor = body.get("sensor")
+
+        if image_path:
+            from pathlib import Path
+            import asyncio
+            p = Path(image_path)
+            if not p.exists():
+                raise HTTPException(status_code=404, detail=f"Image not found: {image_path}")
+            loop = asyncio.get_running_loop()
+            vector = await loop.run_in_executor(None, embedder.embed_image_path, str(p))
+            query_filter = _build_filter(date, sensor)
+            scored = await store.run_sync(
+                store.search,
+                vector,
+                top_k=max(top_k * 3, 20),
+                query_filter=query_filter,
+            )
+            return SearchResponse(
+                mode="image",
+                query=str(image_path),
+                top_k=top_k,
+                results=_to_hits(scored, limit=top_k),
+            )
+        elif tile_id:
+            return await search_similar_tiles(SimilarTileSearchRequest(tile_id=tile_id, top_k=top_k))
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Request must contain either an uploaded 'file', 'image_path', or 'tile_id'.",
+            )
+
+
 @router.post("/image-upload", response_model=SearchResponse)
 async def search_by_image_upload(
     file: UploadFile = File(...),
@@ -174,7 +262,7 @@ async def search_by_image_upload(
     scored = await store.run_sync(
         store.search,
         vector,
-        top_k=top_k,
+        top_k=max(top_k * 3, 20),
         query_filter=query_filter,
     )
 
@@ -182,7 +270,7 @@ async def search_by_image_upload(
         mode="image",
         query=None,
         top_k=top_k,
-        results=_to_hits(scored),
+        results=_to_hits(scored, limit=top_k),
     )
 @router.get("/filter-by-tag")
 async def filter_by_tag(tag: str, limit: int = 10, store: QdrantStore = Depends(get_qdrant_store)):
@@ -216,6 +304,7 @@ async def search_similar_tiles(payload: SimilarTileSearchRequest) -> SearchRespo
     """
     Visual clustering / similarity search: looks up the embedding of the query tile
     and performs cosine ANN vector search to find structurally similar geographical locations.
+    Guarantees deduplicated, unique tile_id results.
     """
     store = get_qdrant_store()
 
@@ -241,24 +330,47 @@ async def search_similar_tiles(payload: SimilarTileSearchRequest) -> SearchRespo
 
     query_vector = list(record.vector)
 
-    limit = payload.top_k + (3 if payload.exclude_self else 0)
+    limit = max(payload.top_k * 4, 25)
     scored = await store.run_sync(
         store.search,
         query_vector,
         top_k=limit,
     )
 
-    if payload.exclude_self:
-        scored = [
-            sp for sp in scored
-            if str((sp.payload or {}).get("tile_id", "")) not in candidate_ids
-        ][: payload.top_k]
-    else:
-        scored = scored[: payload.top_k]
+    candidate_set = set(candidate_ids) if payload.exclude_self else set()
+    hits: list[SearchHit] = []
+    seen_tile_ids: set[str] = set()
+
+    for sp in scored:
+        payload_dict = sp.payload or {}
+        tid = str(payload_dict.get("tile_id", ""))
+        if not tid:
+            continue
+        if payload.exclude_self and tid in candidate_set:
+            continue
+        if tid in seen_tile_ids:
+            continue
+        seen_tile_ids.add(tid)
+        bbox = payload_dict.get("bbox", {})
+        lat, lng = _bbox_center(bbox if isinstance(bbox, dict) else None)
+        hits.append(
+            SearchHit(
+                score=float(sp.score),
+                tile_id=tid,
+                bbox=bbox,
+                date=str(payload_dict.get("date", "")),
+                sensor=str(payload_dict.get("sensor", "")),
+                image_path=str(payload_dict.get("image_path", "")),
+                lat=lat,
+                lng=lng,
+            )
+        )
+        if len(hits) >= payload.top_k:
+            break
 
     return SearchResponse(
         mode="image",
         query=f"similar_to:{matched_id}",
         top_k=payload.top_k,
-        results=_to_hits(scored),
+        results=hits,
     )

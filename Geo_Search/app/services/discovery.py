@@ -49,6 +49,33 @@ def _numpy_kmeans(X: np.ndarray, k: int, max_iter: int = 50) -> np.ndarray:
     return labels
 
 
+SEMANTIC_CATEGORIES = [
+    ("Dense Canopy & Forest Vegetation", "satellite imagery of dense green tree canopy, forest, and lush vegetation"),
+    ("Urban Infrastructure & Built-up", "satellite imagery of dense urban buildings, city streets, and rooftops"),
+    ("Coastal Hydrology & Open Water", "satellite imagery of ocean water, coastlines, rivers, and water bodies"),
+    ("Agricultural Cropland & Soil", "satellite imagery of agricultural farm fields, crop vegetation, and rural soil"),
+    ("Industrial & Transport Infrastructure", "satellite imagery of industrial shipping ports, warehouses, tarmac, and airport runways"),
+    ("Road Network & Expressways", "satellite imagery of highway road networks, asphalt expressways, and transport routes"),
+    ("Land Clearance & Earthworks", "satellite imagery of bare ground earthworks, construction sites, and cleared terrain"),
+]
+
+_THEME_EMBEDDINGS: dict[str, np.ndarray] = {}
+
+
+def _get_theme_embeddings() -> list[tuple[str, np.ndarray]]:
+    global _THEME_EMBEDDINGS
+    if not _THEME_EMBEDDINGS:
+        from app.ml.embedder import get_embedder
+        embedder = get_embedder()
+        for label, prompt in SEMANTIC_CATEGORIES:
+            vec = np.array(embedder.embed_text(prompt), dtype=np.float32)
+            norm = np.linalg.norm(vec)
+            if norm > 0:
+                vec /= norm
+            _THEME_EMBEDDINGS[label] = vec
+    return list(_THEME_EMBEDDINGS.items())
+
+
 def cluster_tiles_unsupervised(
     *,
     num_clusters: int = 5,
@@ -57,6 +84,8 @@ def cluster_tiles_unsupervised(
 ) -> dict[str, Any]:
     """
     Performs unsupervised clustering over satellite tile embeddings.
+    Derives genuine semantic labels via zero-shot cosine similarity between
+    each cluster's centroid vector and canonical geospatial CLIP embeddings.
     Returns 2D PCA projections and spatial cluster envelopes.
     """
     store = get_qdrant_store()
@@ -73,15 +102,31 @@ def cluster_tiles_unsupervised(
 
     vectors = []
     tile_items = []
+    seen_tile_ids = set()
+
     for r in records:
         if r.vector is not None:
+            tid = str((r.payload or {}).get("tile_id", ""))
+            # Ensure only authentic Mumbai AOI tiles are clustered and deduplicated
+            if not tid.startswith("mumbai_") or tid in seen_tile_ids:
+                continue
+            seen_tile_ids.add(tid)
             vectors.append(list(r.vector))
             tile_items.append({
-                "tile_id": r.payload.get("tile_id", ""),
-                "bbox": r.payload.get("bbox", {}),
-                "date": r.payload.get("date", ""),
-                "sensor": r.payload.get("sensor", ""),
+                "tile_id": tid,
+                "bbox": (r.payload or {}).get("bbox", {}),
+                "date": (r.payload or {}).get("date", ""),
+                "sensor": (r.payload or {}).get("sensor", ""),
             })
+
+    if len(vectors) < 3:
+        return {
+            "status": "empty",
+            "message": "Insufficient valid Mumbai tiles in Qdrant for clustering.",
+            "total_tiles": len(vectors),
+            "clusters": [],
+            "points_2d": [],
+        }
 
     X = np.array(vectors, dtype=np.float32)
     n_samples = len(X)
@@ -103,7 +148,7 @@ def cluster_tiles_unsupervised(
     k = min(num_clusters, max(2, n_samples // 2))
     labels = _numpy_kmeans(X, k=k)
 
-    # 3. Aggregate cluster summaries
+    # 3. Aggregate cluster summaries and compute real centroid semantic labels
     cluster_map: dict[int, list[int]] = {}
     for idx, lbl in enumerate(labels):
         lbl_int = int(lbl)
@@ -111,20 +156,26 @@ def cluster_tiles_unsupervised(
             cluster_map[lbl_int] = []
         cluster_map[lbl_int].append(idx)
 
+    theme_embeddings = _get_theme_embeddings()
     cluster_summaries = []
     points_2d = []
 
-    theme_names = [
-        "Dense Canopy & Forest Vegetation",
-        "Urban Infrastructure & Builtup",
-        "Water Reservoir & Hydrology",
-        "Agricultural Cropland & Soil",
-        "Industrial & Commercial Zones",
-        "Transitional / Disturbed Terrain",
-    ]
-
     for c_id, indices in cluster_map.items():
-        c_name = theme_names[c_id % len(theme_names)]
+        # Derive mathematically sound centroid vector for cluster c_id
+        cluster_vecs = X[indices]
+        centroid = cluster_vecs.mean(axis=0)
+        c_norm = np.linalg.norm(centroid)
+        if c_norm > 0:
+            centroid /= c_norm
+
+        best_theme = "Unassigned"
+        best_sim = -1.0
+        for theme_name, theme_vec in theme_embeddings:
+            sim = float(np.dot(centroid, theme_vec))
+            if sim > best_sim:
+                best_sim = sim
+                best_theme = theme_name
+
         c_tiles = [tile_items[i] for i in indices]
         
         all_bounds = []
@@ -145,7 +196,9 @@ def cluster_tiles_unsupervised(
 
         cluster_summaries.append({
             "cluster_id": c_id,
-            "label": f"Cluster {c_id}: {c_name}",
+            "label": f"Cluster {c_id}: {best_theme} (cos {best_sim:.3f})",
+            "semantic_theme": best_theme,
+            "centroid_similarity": round(best_sim, 4),
             "tile_count": len(indices),
             "percentage": round(len(indices) / n_samples * 100, 1),
             "envelope": envelope,
@@ -169,3 +222,4 @@ def cluster_tiles_unsupervised(
         "clusters": sorted(cluster_summaries, key=lambda c: c["tile_count"], reverse=True),
         "points_2d": points_2d,
     }
+

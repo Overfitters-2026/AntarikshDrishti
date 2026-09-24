@@ -270,7 +270,7 @@ async def get_similar_hotspots(
             detail=f"Visual vector embedding not found in Qdrant for hotspot: {hotspot_id}",
         )
 
-    limit = top_k + 5
+    limit = max(top_k * 4, 25)
     scored = await store.run_sync(
         store.search,
         query_vector,
@@ -278,24 +278,27 @@ async def get_similar_hotspots(
     )
 
     hits = []
+    seen_tile_ids = set(candidate_ids)
     for sp in scored:
         payload = sp.payload or {}
         tid = str(payload.get("tile_id", ""))
-        if tid not in candidate_ids:
-            bbox = payload.get("bbox", {})
-            lat, lng = _bbox_center(bbox if isinstance(bbox, dict) else None)
-            hits.append({
-                "score": float(sp.score),
-                "tile_id": tid,
-                "bbox": bbox,
-                "date": str(payload.get("date", "")),
-                "sensor": str(payload.get("sensor", "")),
-                "image_path": str(payload.get("image_path", "")),
-                "lat": lat,
-                "lng": lng,
-            })
-            if len(hits) >= top_k:
-                break
+        if not tid or tid in seen_tile_ids:
+            continue
+        seen_tile_ids.add(tid)
+        bbox = payload.get("bbox", {})
+        lat, lng = _bbox_center(bbox if isinstance(bbox, dict) else None)
+        hits.append({
+            "score": float(sp.score),
+            "tile_id": tid,
+            "bbox": bbox,
+            "date": str(payload.get("date", "")),
+            "sensor": str(payload.get("sensor", "")),
+            "image_path": str(payload.get("image_path", "")),
+            "lat": lat,
+            "lng": lng,
+        })
+        if len(hits) >= top_k:
+            break
 
     return {
         "status": "success",
