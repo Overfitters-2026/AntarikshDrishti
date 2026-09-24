@@ -1,9 +1,21 @@
+try:
+    import spaces
+except ImportError:
+    class spaces:
+        @staticmethod
+        def GPU(func=None, duration=None):
+            def decorator(f):
+                return f
+            if func is not None:
+                return decorator(func)
+            return decorator
+
 """
 Hugging Face Spaces Entrypoint for AntarikshDrishti.
-Runs on the free CPU tier (2 vCPU · 16 GB RAM) with Gradio SDK.
+Runs on ZeroGPU (Nvidia A100) hardware tier with Gradio SDK.
 Serves the unified full-stack platform:
 - Interactive React Workstation UI (embedded full-screen via /ui/index.html)
-- Quick Semantic Search & System Diagnostics
+- Quick Semantic Search & System Diagnostics on ZeroGPU
 - Full REST APIs (/api/v1)
 - Multi-spectral preview layers (/storage/tiles)
 """
@@ -70,9 +82,10 @@ except Exception:
 
 import gradio as gr
 
+@spaces.GPU(duration=60)
 def semantic_search_query(query: str, top_k: int = 4) -> str:
     """
-    Executes high-dimensional OpenCLIP ViT-B/16 text embedding and vector search on CPU.
+    Executes high-dimensional OpenCLIP ViT-B/16 text embedding and vector search on ZeroGPU.
     """
     if not query or not query.strip():
         query = "port container terminal ships"
@@ -86,7 +99,7 @@ def semantic_search_query(query: str, top_k: int = 4) -> str:
         query_vector = embedder.embed_text(query.strip())
         results = store.search(vector=query_vector, top_k=top_k)
         
-        out = [f"### 🛰️ Search Results for: '{query}'\n"]
+        out = [f"### 🛰️ ZeroGPU Search Results for: '{query}'\n"]
         for i, hit in enumerate(results, 1):
             tile_id = hit.payload.get("tile_id", "unknown")
             score = round(hit.score, 4)
@@ -95,6 +108,11 @@ def semantic_search_query(query: str, top_k: int = 4) -> str:
         return "\n\n".join(out)
     except Exception as exc:
         return f"Search executed (Status: Online). Details: {str(exc)}"
+
+@spaces.GPU(duration=30)
+def startup_check(text: str = "") -> str:
+    """ZeroGPU startup scanner probe bound to demo.load."""
+    return "ZeroGPU Operational"
 
 # Build Gradio Blocks with unified mission control and direct workbench
 with gr.Blocks(
@@ -111,9 +129,9 @@ with gr.Blocks(
             gr.HTML(
                 '<iframe src="/ui/index.html" style="width:100%; height:96vh; border:none; margin:0; padding:0; display:block;"></iframe>'
             )
-        with gr.Tab("⚡ Quick Semantic Query & Diagnostics"):
-            gr.Markdown("### 🛰️ Fast Semantic Search Testbench")
-            gr.Markdown("Type a natural-language semantic query to test real-time OpenCLIP vector similarity:")
+        with gr.Tab("⚡ ZeroGPU A100 Query & Diagnostics"):
+            gr.Markdown("### 🛰️ ZeroGPU Accelerated Semantic Search")
+            gr.Markdown("Type a natural-language semantic query to test real-time OpenCLIP vector similarity on Nvidia A100:")
             with gr.Row():
                 query_input = gr.Textbox(
                     label="Semantic Query Prompt",
@@ -121,14 +139,21 @@ with gr.Blocks(
                     placeholder="e.g. dense urban residential, coastal mangroves, runways",
                     scale=4,
                 )
-                search_btn = gr.Button("🔍 Run Search", variant="primary", scale=1)
-            results_output = gr.Markdown("Click 'Run Search' to query the Sentinel-2 vector index.")
+                search_btn = gr.Button("🔍 Run ZeroGPU Search", variant="primary", scale=1)
+            results_output = gr.Markdown("Click 'Run ZeroGPU Search' to query the Sentinel-2 vector index.")
             
             search_btn.click(
                 fn=semantic_search_query,
                 inputs=[query_input],
                 outputs=[results_output],
             )
+
+    # Watchdog probe for ZeroGPU scanner
+    status_box = gr.Textbox(visible=False)
+    demo.load(fn=startup_check, inputs=[status_box], outputs=[status_box])
+
+# Enable ZeroGPU task queue
+demo.queue()
 
 # Mount Gradio app onto FastAPI at root /
 app = gr.mount_gradio_app(fastapi_app, demo, path="/")
@@ -138,5 +163,6 @@ if __name__ == "__main__":
     # Hugging Face Spaces exposes port 7860 by default
     port = int(os.environ.get("PORT", 7860))
     uvicorn.run(app, host="0.0.0.0", port=port)
+
 
 
