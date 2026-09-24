@@ -17,6 +17,7 @@ _store_lock = threading.Lock()
 class QdrantStore:
     def __init__(self) -> None:
         settings.ensure_dirs()
+        self.collection_name = settings.QDRANT_COLLECTION
         self._client = QdrantClient(path=str(settings.QDRANT_PATH))
         self._io_lock = threading.RLock()
         self._ensure_collection()
@@ -33,6 +34,14 @@ class QdrantStore:
                         distance=qmodels.Distance.COSINE,
                     ),
                 )
+
+    def reset_collection(self) -> None:
+        with self._io_lock:
+            collections = self._client.get_collections().collections
+            names = {c.name for c in collections}
+            if settings.QDRANT_COLLECTION in names:
+                self._client.delete_collection(collection_name=settings.QDRANT_COLLECTION)
+            self._ensure_collection()
 
     def upsert_points(self, points: list[qmodels.PointStruct]) -> None:
         if not points:
@@ -52,14 +61,25 @@ class QdrantStore:
         query_filter: Optional[qmodels.Filter] = None,
     ) -> list[qmodels.ScoredPoint]:
         with self._io_lock:
-            return self._client.search(
+            if hasattr(self._client, "search"):
+                return self._client.search(
+                    collection_name=settings.QDRANT_COLLECTION,
+                    query_vector=query_vector,
+                    limit=top_k,
+                    query_filter=query_filter,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+            # Newer qdrant-client versions use query_points
+            res = self._client.query_points(
                 collection_name=settings.QDRANT_COLLECTION,
-                query_vector=query_vector,
+                query=query_vector,
                 limit=top_k,
                 query_filter=query_filter,
                 with_payload=True,
                 with_vectors=False,
             )
+            return res.points
 
     def scroll_by_payload(
         self,

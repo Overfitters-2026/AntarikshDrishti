@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # Python
 __pycache__/
 *.py[cod]
@@ -12,6 +11,7 @@ __pycache__/
 .ruff_cache/
 .coverage
 htmlcov/
+*.lock
 
 # Virtual environments
 .venv/
@@ -41,15 +41,24 @@ lerna-debug.log*
 Thumbs.db
 .vscode/
 .idea/
-=======
-data/qdrant/
-data/*.db
-storage/tiles/*
+
+# Large binaries & generated tiles
+data/
+Geo_Search/data/
 storage/raw_geotiff/*
-.env
-venv/
-__pycache__/
-*.pyc
-*.pyo
-.pytest_cache/
->>>>>>> 5638a8e8393865d8d5b995a9ba399111fcee9b9b
+!storage/raw_geotiff/.gitkeep
+storage/tiles/*
+!storage/tiles/.gitkeep
+storage/qdrant_db/*
+!storage/qdrant_db/.gitkeep
+Geo_Search/storage/raw_geotiff/*
+!Geo_Search/storage/raw_geotiff/.gitkeep
+Geo_Search/storage/tiles/*
+!Geo_Search/storage/tiles/.gitkeep
+Geo_Search/storage/qdrant_db/*
+!Geo_Search/storage/qdrant_db/.gitkeep
+Geo_Search/storage/*.db
+
+# Legacy / extraneous folders
+app_legacy/
+PS-SIH26162/

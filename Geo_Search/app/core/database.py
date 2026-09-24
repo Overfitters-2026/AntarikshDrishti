@@ -130,6 +130,13 @@ class ReviewQueueRepository:
         return result.scalar_one_or_none()
 
     @staticmethod
+    async def get_by_tile_id(session: AsyncSession, tile_id: str) -> Optional[ReviewQueueItem]:
+        result = await session.execute(
+            select(ReviewQueueItem).where(ReviewQueueItem.tile_id == tile_id)
+        )
+        return result.scalars().first()
+
+    @staticmethod
     async def update_item(
         session: AsyncSession,
         item_id: int,

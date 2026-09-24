@@ -1,4 +1,4 @@
-# Geo-Semantic Satellite Retrieval & Multi-Temporal Change Platform (SIH 26227)
+# AntarikshDrishti
 
 Offline-first AI platform for semantic satellite image search, unsupervised discovery, multi-temporal change detection, and analyst review for **Smart India Hackathon Problem Statement 26227**.
 

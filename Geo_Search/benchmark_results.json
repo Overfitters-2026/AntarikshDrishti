@@ -1,0 +1,52 @@
+{
+  "timestamp": "2026-09-23 07:14:38 UTC",
+  "hardware": {
+    "os": "Windows 11 (10.0.26200)",
+    "cpu": "AMD Ryzen 5 8645HS w/ Radeon 760M Graphics",
+    "gpu": "AMD Radeon(TM) Graphics, NVIDIA GeForce RTX 3050 6GB Laptop GPU",
+    "ram_gb": 15.23
+  },
+  "aoi_coverage": {
+    "location": "Mumbai, Maharashtra, India (19.0760N, 72.8777E)",
+    "window_pixels": "1024x1024 px",
+    "ground_resolution": "10 meters/pixel (Sentinel-2 L2A)",
+    "coverage_area_sq_km": 104.85
+  },
+  "build_pipeline": {
+    "total_run_time_seconds": 7.286,
+    "t1_ingest_time_seconds": 4.842,
+    "t2_ingest_time_seconds": 1.85,
+    "change_detect_time_seconds": 0.594,
+    "tiles_processed": 35,
+    "anomalies_detected": 3,
+    "review_queue_items": 3
+  },
+  "storage": {
+    "raw_geotiff_bytes": 5704054,
+    "raw_geotiff_formatted": "5.44 MB",
+    "tiles_bytes": 0,
+    "tiles_formatted": "0.00 B",
+    "system_db_bytes": 20480,
+    "system_db_formatted": "20.00 KB",
+    "semantic_db_bytes": 20480,
+    "semantic_db_formatted": "20.00 KB",
+    "qdrant_bytes": 496177,
+    "qdrant_formatted": "484.55 KB",
+    "total_footprint_bytes": 6241191,
+    "total_footprint_formatted": "5.95 MB"
+  },
+  "query_latency": {
+    "hotspots_endpoint": {
+      "min_ms": 70.9,
+      "max_ms": 91.32,
+      "avg_ms": 76.62,
+      "p95_ms": 83.46
+    },
+    "semantic_search_endpoint": {
+      "min_ms": 86.89,
+      "max_ms": 111.73,
+      "avg_ms": 92.89,
+      "p95_ms": 93.76
+    }
+  }
+}

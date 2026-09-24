@@ -1,14 +1,46 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+from datetime import datetime
+import os
+from typing import Any, Optional
 
+import joblib
 import numpy as np
 
 from app.core.config import settings
 from app.ml.embedder import OpenCLIPEmbedder
-from app.services.cloud_mask import compute_ndvi_or_green_index, validate_qa_mask
+from app.services.cloud_mask import (
+    compute_cloud_shadow_ratio,
+    is_cloud_or_shadow_contaminated,
+)
 from app.services.normalizer import histogram_match_t2_to_t1
+
+_rf_model = None
+_rf_model_loaded = False
+
+
+def get_rf_classifier():
+    global _rf_model, _rf_model_loaded
+    if not _rf_model_loaded:
+        candidates = [
+            os.path.join(os.getcwd(), "data", "models", "rf_false_alarm.joblib"),
+            os.path.join(
+                os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+                "data",
+                "models",
+                "rf_false_alarm.joblib",
+            ),
+        ]
+        for path in candidates:
+            if os.path.exists(path):
+                try:
+                    _rf_model = joblib.load(path)
+                    break
+                except Exception:
+                    _rf_model = None
+        _rf_model_loaded = True
+    return _rf_model
 
 
 @dataclass(frozen=True)
@@ -18,11 +50,9 @@ class ChangeResult:
     drift: float
     similarity: float
     confidence: float
-    category: str
-    cloud_qa_pass: bool
     suppressed: bool
     reason: Optional[str] = None
-    qa_metrics: Optional[dict] = None
+    confidence_factors: Optional[dict[str, Any]] = None
 
 
 def cosine_similarity(v1: list[float], v2: list[float]) -> float:
@@ -34,17 +64,9 @@ def cosine_similarity(v1: list[float], v2: list[float]) -> float:
     return float(np.dot(a, b) / denom)
 
 
-def compute_spectral_drift(t1: np.ndarray, t2: np.ndarray) -> float:
-    """
-    Computes direct radiometric & spectral variation between T1 and T2 arrays.
-    """
-    a1 = t1.astype(np.float32) / (255.0 if t1.max() > 1.0 else 1.0)
-    a2 = t2.astype(np.float32) / (255.0 if t2.max() > 1.0 else 1.0)
-    bands = min(a1.shape[0] if a1.ndim == 3 else 1, a2.shape[0] if a2.ndim == 3 else 1)
-    
-    diff = np.abs(a1[:bands] - a2[:bands])
-    mean_diff = float(np.mean(diff))
-    return float(np.clip(mean_diff * 2.5, 0.0, 1.0))
+def embedding_drift(v1: list[float], v2: list[float]) -> float:
+    sim = cosine_similarity(v1, v2)
+    return float(max(0.0, 1.0 - sim))
 
 
 def detect_change_between_tiles(
@@ -56,105 +78,111 @@ def detect_change_between_tiles(
     t2_array: np.ndarray,
     t1_vector: Optional[list[float]] = None,
     t2_vector: Optional[list[float]] = None,
+    date_t1: Optional[str] = None,
+    date_t2: Optional[str] = None,
 ) -> ChangeResult:
-    # 1. QA Mask & Cloud/Shadow filtering
-    t1_pass, t1_qa, t1_reason = validate_qa_mask(
+    if is_cloud_or_shadow_contaminated(
         t1_array,
         max_ratio=settings.CLOUD_SHADOW_MAX_RATIO,
-        cloud_threshold=0.92,
+        cloud_threshold=settings.CLOUD_BRIGHTNESS_THRESHOLD,
         shadow_threshold=settings.SHADOW_BRIGHTNESS_THRESHOLD,
-    )
-    if not t1_pass:
+    ):
         return ChangeResult(
             t1_tile_id=t1_tile_id,
             t2_tile_id=t2_tile_id,
             drift=0.0,
             similarity=1.0,
             confidence=0.0,
-            category="Suppressed / Cloud Occlusion",
-            cloud_qa_pass=False,
             suppressed=True,
-            reason=f"T1 {t1_reason}",
-            qa_metrics=t1_qa,
+            reason="T1 cloud/shadow contamination",
         )
 
-    t2_pass, t2_qa, t2_reason = validate_qa_mask(
+    if is_cloud_or_shadow_contaminated(
         t2_array,
         max_ratio=settings.CLOUD_SHADOW_MAX_RATIO,
-        cloud_threshold=0.92,
+        cloud_threshold=settings.CLOUD_BRIGHTNESS_THRESHOLD,
         shadow_threshold=settings.SHADOW_BRIGHTNESS_THRESHOLD,
-    )
-    if not t2_pass:
+    ):
         return ChangeResult(
             t1_tile_id=t1_tile_id,
             t2_tile_id=t2_tile_id,
             drift=0.0,
             similarity=1.0,
             confidence=0.0,
-            category="Suppressed / Cloud Occlusion",
-            cloud_qa_pass=False,
             suppressed=True,
-            reason=f"T2 {t2_reason}",
-            qa_metrics=t2_qa,
+            reason="T2 cloud/shadow contamination",
         )
 
-    # 2. Extract vectors
+    t2_norm = histogram_match_t2_to_t1(t1_array, t2_array)
+
     vec1 = t1_vector if t1_vector is not None else embedder.embed_image_array(t1_array)
-    vec2 = t2_vector if t2_vector is not None else embedder.embed_image_array(t2_array)
+    vec2 = t2_vector if t2_vector is not None else embedder.embed_image_array(t2_norm)
 
-    # 3. Embedding drift & Spectral difference
     sim = cosine_similarity(vec1, vec2)
-    embed_drift = float(max(0.0, 1.0 - sim))
-    spectral_drift = compute_spectral_drift(t1_array, t2_array)
-    
-    # Combined drift metric
-    drift = float(np.clip(0.5 * embed_drift + 0.5 * spectral_drift, 0.0, 1.0))
+    drift = embedding_drift(vec1, vec2)
 
-    # 4. Multi-band Vegetative & Spectral Transition Analysis
-    t1_ndvi = compute_ndvi_or_green_index(t1_array)
-    t2_ndvi = compute_ndvi_or_green_index(t2_array)
-    ndvi_delta = t2_ndvi - t1_ndvi
+    c1 = compute_cloud_shadow_ratio(
+        t1_array,
+        cloud_threshold=settings.CLOUD_BRIGHTNESS_THRESHOLD,
+        shadow_threshold=settings.SHADOW_BRIGHTNESS_THRESHOLD,
+    )
+    c2 = compute_cloud_shadow_ratio(
+        t2_array,
+        cloud_threshold=settings.CLOUD_BRIGHTNESS_THRESHOLD,
+        shadow_threshold=settings.SHADOW_BRIGHTNESS_THRESHOLD,
+    )
+    d1 = None
+    d2 = None
+    if date_t1:
+        try:
+            d1 = datetime.fromisoformat(date_t1[:10])
+        except Exception:
+            pass
+    if date_t2:
+        try:
+            d2 = datetime.fromisoformat(date_t2[:10])
+        except Exception:
+            pass
 
-    # Compute RGB band averages
-    t1_f = t1_array.astype(np.float32) / (255.0 if t1_array.max() > 1.0 else 1.0)
-    t2_f = t2_array.astype(np.float32) / (255.0 if t2_array.max() > 1.0 else 1.0)
+    days_between = abs((d2 - d1).days) if (d1 and d2) else 30
+    month_t1 = d1.month if d1 else 1
+    month_t2 = d2.month if d2 else 1
 
-    t2_mean_r = float(np.mean(t2_f[0]))
-    t2_mean_g = float(np.mean(t2_f[1]))
-    t2_mean_b = float(np.mean(t2_f[2]))
-    t2_mean_nir = float(np.mean(t2_f[3])) if t2_f.shape[0] >= 4 else 0.5
+    feature_vector = np.array(
+        [[drift, sim, c1, c2, days_between, month_t1, month_t2]],
+        dtype=np.float32,
+    )
 
-    # Determine Change Category based on spectral transition signatures & zero-shot vectors
-    if drift < 0.08:
-        category = "Stable / No Significant Change"
-        confidence = round(float(drift), 4)
-    elif t2_mean_b > 0.65 and t2_mean_nir < 0.20 and t2_mean_r < 0.35:
-        category = "Water Body Expansion / Flooding"
-        confidence = round(float(np.clip(0.75 + drift * 0.25, 0.75, 0.98)), 4)
-    elif ndvi_delta < -0.30 and t2_mean_r > 0.55 and t2_mean_b < 0.45:
-        category = "Vegetation Clearance / Deforestation"
-        confidence = round(float(np.clip(0.70 + drift * 0.30, 0.70, 0.96)), 4)
-    elif t2_mean_r > 0.60 and t2_mean_g > 0.60 and t2_mean_b > 0.60:
-        category = "Construction / New Structure"
-        confidence = round(float(np.clip(0.80 + drift * 0.20, 0.80, 0.99)), 4)
-    elif np.abs(ndvi_delta) > 0.20:
-        category = "Agricultural Transition"
-        confidence = round(float(np.clip(0.60 + drift * 0.40, 0.60, 0.90)), 4)
+    rf = get_rf_classifier()
+    if rf is not None:
+        try:
+            # Learned probability of class 1 (Real Change)
+            confidence = float(rf.predict_proba(feature_vector)[0][1])
+        except Exception:
+            confidence = float(min(1.0, drift / max(settings.CHANGE_DRIFT_THRESHOLD, 1e-6)))
     else:
-        # Fall back to zero-shot CLIP classification
-        clip_cat, clip_conf = embedder.classify_change(vec1, vec2)
-        category = clip_cat
-        confidence = round(float(np.clip(0.5 * drift + 0.5 * clip_conf, 0.4, 0.95)), 4)
+        confidence = float(min(1.0, drift / max(settings.CHANGE_DRIFT_THRESHOLD, 1e-6)))
+
+    factors = {
+        "drift": float(round(drift, 4)),
+        "similarity": float(round(sim, 4)),
+        "cloud_contamination_ratio_t1": float(round(c1, 4)),
+        "cloud_contamination_ratio_t2": float(round(c2, 4)),
+        "days_between": int(days_between),
+        "month_t1": int(month_t1),
+        "month_t2": int(month_t2),
+        "radiometric_normalization": "Histogram CDF Matched (t2 -> t1)",
+        "spatial_alignment": "10m CRS Pixel Grid (EPSG:32643)",
+        "rf_model": "RandomForestClassifier (50 trees, max_depth=4)" if rf is not None else "Deterministic Calibration",
+    }
 
     return ChangeResult(
         t1_tile_id=t1_tile_id,
         t2_tile_id=t2_tile_id,
-        drift=round(drift, 4),
-        similarity=round(sim, 4),
+        drift=drift,
+        similarity=sim,
         confidence=confidence,
-        category=category,
-        cloud_qa_pass=True,
         suppressed=False,
         reason=None,
-        qa_metrics={"t1": t1_qa, "t2": t2_qa, "ndvi_t1": round(t1_ndvi, 3), "ndvi_t2": round(t2_ndvi, 3)},
-    )
+        confidence_factors=factors,
+    )

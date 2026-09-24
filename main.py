@@ -1,75 +1,26 @@
-from __future__ import annotations
+"""
+CANONICAL ENTRYPOINT DELEGATION:
+This repository consolidates all backend services under the single source of truth:
+c:/Projects/PS_227/Geo_Search/
 
-import logging
-from contextlib import asynccontextmanager
+To eliminate code drift and duplicate divergence, this root main.py delegates
+directly to the active FastAPI application in Geo_Search/main.py.
+"""
+import os
+import sys
+import importlib.util
 from pathlib import Path
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
+# Change working directory so all relative paths (storage/, data/) align with Geo_Search
+GEO_SEARCH_DIR = Path(__file__).resolve().parent / "Geo_Search"
+os.chdir(str(GEO_SEARCH_DIR))
+if str(GEO_SEARCH_DIR) not in sys.path:
+    sys.path.insert(0, str(GEO_SEARCH_DIR))
 
-from app.api import analyst, change, discovery, ingest, review, search, tiles
-from app.core.config import settings
-from app.core.database import close_db, init_db
-from app.ml.embedder import get_embedder
-from app.services.qdrant_store import get_qdrant_store
+# Dynamically import canonical main from Geo_Search to avoid circular name collision
+spec = importlib.util.spec_from_file_location("geo_search_main", GEO_SEARCH_DIR / "main.py")
+geo_main = importlib.util.module_from_spec(spec)
+sys.modules["geo_search_main"] = geo_main
+spec.loader.exec_module(geo_main)
 
-logging.basicConfig(
-    level=getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO),
-    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-)
-logger = logging.getLogger(__name__)
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    logger.info("Initializing Geo-Semantic Backend & Storage (100% Offline Mode)...")
-    settings.ensure_dirs()
-    await init_db()
-    get_qdrant_store()
-    get_embedder()
-    logger.info("Database, Local Qdrant, and VLM Embedder successfully initialized.")
-    yield
-    await close_db()
-    logger.info("Geo-Semantic Backend shut down cleanly.")
-
-
-app = FastAPI(
-    title=settings.APP_NAME,
-    version=settings.APP_VERSION,
-    description="Offline semantic satellite imagery search, multi-temporal change detection & analyst review",
-    lifespan=lifespan,
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# API Routers
-app.include_router(ingest.router, prefix=settings.API_PREFIX)
-app.include_router(search.router, prefix=settings.API_PREFIX)
-app.include_router(change.router, prefix=settings.API_PREFIX)
-app.include_router(review.router, prefix=settings.API_PREFIX)
-app.include_router(analyst.router, prefix=settings.API_PREFIX)
-app.include_router(tiles.router, prefix=settings.API_PREFIX)
-app.include_router(discovery.router, prefix=settings.API_PREFIX)
-
-
-@app.get("/health")
-async def health() -> dict[str, str]:
-    return {
-        "status": "ok",
-        "mode": "offline",
-        "engine": "Geo-Semantic 1.0.0",
-        "model_hash": settings.MODEL_CHECKPOINT_HASH,
-    }
-
-
-# Mount Static Frontend Dashboard
-frontend_dir = settings.BASE_DIR / "frontend"
-if frontend_dir.exists():
-    app.mount("/", StaticFiles(directory=str(frontend_dir), html=True), name="frontend")
+app = geo_main.app

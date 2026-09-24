@@ -47,7 +47,7 @@ class Settings(BaseSettings):
 
     CLOUD_BRIGHTNESS_THRESHOLD: float = 0.82
     SHADOW_BRIGHTNESS_THRESHOLD: float = 0.08
-    CLOUD_SHADOW_MAX_RATIO: float = 0.35
+    CLOUD_SHADOW_MAX_RATIO: float = 0.15
 
     CORS_ORIGINS: List[str] = ["*"]
     LOG_LEVEL: str = "INFO"
