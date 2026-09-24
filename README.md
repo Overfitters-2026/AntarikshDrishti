@@ -8,7 +8,7 @@ sdk_version: 4.44.0
 app_file: app.py
 pinned: false
 license: mit
-short_description: Multi-Spectral Satellite Semantic Search & Change Intelligence
+short_description: Satellite Semantic Search & Change Intelligence
 ---
 
 # AntarikshDrishti
