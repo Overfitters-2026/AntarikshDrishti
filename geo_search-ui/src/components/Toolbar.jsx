@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { setApiBaseUrl, API_BASE_URL } from '../api/config.js';
 
 function utcTime() {
   return `${new Date().toISOString().slice(11, 19)} UTC`;
@@ -134,14 +135,22 @@ export default function Toolbar({
         {/* Backend Connectivity Status Badge */}
         <div
           className={`sys-status-badge ${backendConnected ? 'connected' : 'offline'}`}
+          style={{ cursor: 'pointer' }}
+          onClick={() => {
+            const current = localStorage.getItem('geosentry_api_url') || (API_BASE_URL !== 'http://127.0.0.1:8000' ? API_BASE_URL : '');
+            const input = window.prompt('Connect to Backend API URL (e.g. https://your-app.onrender.com):', current);
+            if (input !== null) {
+              setApiBaseUrl(input.trim());
+            }
+          }}
           title={
             backendConnected
-              ? 'FastAPI process responding (process availability only; data pipeline state tracked separately)'
-              : 'Backend server process unreachable at configured API URL'
+              ? 'FastAPI process responding (Online). Click to change backend URL.'
+              : 'Backend server offline/unreachable. Click to connect your Render or live API URL!'
           }
         >
           <span className="status-dot" aria-hidden="true" />
-          <span>{backendConnected ? 'SERVER: ONLINE' : 'SERVER: OFFLINE'}</span>
+          <span>{backendConnected ? 'SERVER: ONLINE' : 'SERVER: OFFLINE (CLICK TO CONNECT)'}</span>
         </div>
 
         {/* UTC Clock */}
