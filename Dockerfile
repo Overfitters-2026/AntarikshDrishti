@@ -35,10 +35,8 @@ RUN pip install --no-cache-dir torch torchvision --index-url https://download.py
 
 # Copy backend source code & pre-computed databases/storage
 COPY Geo_Search/ ./Geo_Search/
-COPY app/ ./app/
 COPY main.py .
-COPY storage/ ./storage/
-COPY data/ ./data/
+
 
 # Copy built frontend assets from Stage 1 into geo_search-ui/dist
 COPY --from=frontend-builder /app/geo_search-ui/dist ./geo_search-ui/dist
