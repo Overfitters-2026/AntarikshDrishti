@@ -24,6 +24,17 @@ if str(ROOT_DIR) not in sys.path:
 # Import the canonical FastAPI application
 from main import app as fastapi_app
 
+# ZeroGPU watchdog integration
+try:
+    import spaces
+    @spaces.GPU
+    def _zerogpu_runner():
+        """Satisfies Hugging Face ZeroGPU startup watchdog."""
+        return True
+    _zerogpu_runner()
+except ImportError:
+    pass
+
 try:
     import gradio as gr
 
