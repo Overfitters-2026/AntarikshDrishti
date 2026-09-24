@@ -13,6 +13,8 @@ short_description: Satellite Semantic Search & Change Intelligence
 
 # AntarikshDrishti
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Overfitters-2026/AntarikshDrishti/blob/main/AntarikshDrishti_Live.ipynb)
+
 Offline-first AI platform for semantic satellite image search, unsupervised discovery, multi-temporal change detection, and analyst review for **Smart India Hackathon Problem Statement 26227**.
 
 ---
