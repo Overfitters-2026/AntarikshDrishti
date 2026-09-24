@@ -50,13 +50,15 @@ def _numpy_kmeans(X: np.ndarray, k: int, max_iter: int = 50) -> np.ndarray:
 
 
 SEMANTIC_CATEGORIES = [
+    ("Dense Commercial & High-Rise Urban", "satellite imagery of dense metropolitan high-rise buildings, commercial skyline, and skyscrapers"),
+    ("Low-Rise Residential & Suburban Fabric", "satellite imagery of dense residential housing rooftops, suburban streets, and neighborhood settlement"),
+    ("Airport Runways, Hangars & Tarmac", "satellite imagery of airport runway tarmac, airport taxiways, airport terminals, and hangars"),
+    ("Maritime Port, Docks & Industrial Zone", "satellite imagery of maritime shipping docks, port harbor, cargo containers, warehouses, and industrial piers"),
+    ("Coastal Bay & Open Water Hydrology", "satellite imagery of ocean seawater, coastal bay, river estuary, and deep open water"),
+    ("Coastal Wetlands, Mudflats & Mangroves", "satellite imagery of coastal tidal mudflats, mangrove vegetation, intertidal marsh, and creek wetlands"),
     ("Dense Canopy & Forest Vegetation", "satellite imagery of dense green tree canopy, forest, and lush vegetation"),
-    ("Urban Infrastructure & Built-up", "satellite imagery of dense urban buildings, city streets, and rooftops"),
-    ("Coastal Hydrology & Open Water", "satellite imagery of ocean water, coastlines, rivers, and water bodies"),
-    ("Agricultural Cropland & Soil", "satellite imagery of agricultural farm fields, crop vegetation, and rural soil"),
-    ("Industrial & Transport Infrastructure", "satellite imagery of industrial shipping ports, warehouses, tarmac, and airport runways"),
-    ("Road Network & Expressways", "satellite imagery of highway road networks, asphalt expressways, and transport routes"),
-    ("Land Clearance & Earthworks", "satellite imagery of bare ground earthworks, construction sites, and cleared terrain"),
+    ("Agricultural Cropland & Rural Soil", "satellite imagery of agricultural farm fields, crop vegetation, and rural soil"),
+    ("Land Clearance & Active Earthworks", "satellite imagery of bare ground earthworks, construction sites, and excavated soil"),
 ]
 
 _THEME_EMBEDDINGS: dict[str, np.ndarray] = {}
@@ -86,6 +88,7 @@ def cluster_tiles_unsupervised(
     Performs unsupervised clustering over satellite tile embeddings.
     Derives genuine semantic labels via zero-shot cosine similarity between
     each cluster's centroid vector and canonical geospatial CLIP embeddings.
+    Computes inter-cluster centroid separation metrics.
     Returns 2D PCA projections and spatial cluster envelopes.
     """
     store = get_qdrant_store()
@@ -159,6 +162,7 @@ def cluster_tiles_unsupervised(
     theme_embeddings = _get_theme_embeddings()
     cluster_summaries = []
     points_2d = []
+    centroids: dict[int, np.ndarray] = {}
 
     for c_id, indices in cluster_map.items():
         # Derive mathematically sound centroid vector for cluster c_id
@@ -167,6 +171,7 @@ def cluster_tiles_unsupervised(
         c_norm = np.linalg.norm(centroid)
         if c_norm > 0:
             centroid /= c_norm
+        centroids[c_id] = centroid
 
         best_theme = "Unassigned"
         best_sim = -1.0
@@ -205,6 +210,23 @@ def cluster_tiles_unsupervised(
             "sample_tiles": [t["tile_id"] for t in c_tiles[:5]],
         })
 
+    # 4. Compute inter-cluster centroid distances and separation metrics
+    inter_cluster_distances = []
+    c_keys = sorted(centroids.keys())
+    for i in range(len(c_keys)):
+        for j in range(i + 1, len(c_keys)):
+            c1, c2 = c_keys[i], c_keys[j]
+            cos_sim = float(np.dot(centroids[c1], centroids[c2]))
+            cos_dist = float(1.0 - cos_sim)
+            inter_cluster_distances.append({
+                "pair": f"C{c1}-C{c2}",
+                "cosine_similarity": round(cos_sim, 4),
+                "cosine_distance": round(cos_dist, 4),
+            })
+
+    mean_dist = float(np.mean([d["cosine_distance"] for d in inter_cluster_distances])) if inter_cluster_distances else 0.0
+    min_dist = float(np.min([d["cosine_distance"] for d in inter_cluster_distances])) if inter_cluster_distances else 0.0
+
     for i in range(n_samples):
         points_2d.append({
             "tile_id": tile_items[i]["tile_id"],
@@ -220,6 +242,11 @@ def cluster_tiles_unsupervised(
         "total_tiles": n_samples,
         "cluster_count": len(cluster_summaries),
         "clusters": sorted(cluster_summaries, key=lambda c: c["tile_count"], reverse=True),
+        "separation_metrics": {
+            "mean_inter_cluster_distance": round(mean_dist, 4),
+            "min_inter_cluster_distance": round(min_dist, 4),
+            "pairwise_distances": inter_cluster_distances,
+        },
         "points_2d": points_2d,
     }
 
