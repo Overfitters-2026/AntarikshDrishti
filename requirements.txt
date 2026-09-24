@@ -21,4 +21,5 @@ torch>=2.2.0
 torchvision>=0.17.0
 open_clip_torch>=2.24.0
 timm>=0.9.16
+huggingface_hub<0.25.0
 gradio>=4.44.0

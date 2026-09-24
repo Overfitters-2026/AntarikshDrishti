@@ -60,6 +60,27 @@ except ImportError:
                 return decorator(func)
             return decorator
 
+# Compatibility patch for huggingface_hub >= 0.25 where HfFolder was removed
+try:
+    import huggingface_hub
+    if not hasattr(huggingface_hub, "HfFolder"):
+        class MockHfFolder:
+            @staticmethod
+            def get_token():
+                try:
+                    return huggingface_hub.get_token()
+                except Exception:
+                    return os.environ.get("HF_TOKEN")
+            @staticmethod
+            def save_token(token):
+                pass
+            @staticmethod
+            def delete_token():
+                pass
+        huggingface_hub.HfFolder = MockHfFolder
+except Exception:
+    pass
+
 import gradio as gr
 
 @spaces.GPU(duration=60)
