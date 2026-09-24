@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form, Request
 from pydantic import BaseModel, Field, field_validator
 from qdrant_client.http import models as qmodels
 from app.services.qdrant_store import QdrantStore, get_qdrant_store
@@ -155,6 +155,86 @@ async def search_by_image_path(payload: ImagePathSearchRequest) -> SearchRespons
         top_k=payload.top_k,
         results=_to_hits(scored),
     )
+
+
+@router.post("/image", response_model=SearchResponse)
+async def search_by_image(request: Request) -> SearchResponse:
+    """
+    Image-to-image semantic visual search querying real Qdrant vectors.
+    Supports:
+      1. Multipart Form Upload: 'file' (UploadFile)
+      2. JSON payload: {"image_path": "...", "top_k": 10}
+      3. JSON payload: {"tile_id": "...", "top_k": 10}
+    """
+    embedder = get_embedder()
+    store = get_qdrant_store()
+    content_type = request.headers.get("content-type", "")
+
+    if "multipart/form-data" in content_type:
+        form = await request.form()
+        uploaded_file = form.get("file")
+        if not uploaded_file or not hasattr(uploaded_file, "read"):
+            raise HTTPException(status_code=400, detail="Missing image file in form data")
+        top_k = int(form.get("top_k", settings.SEARCH_DEFAULT_TOP_K))
+        date = form.get("date")
+        sensor = form.get("sensor")
+        data = await uploaded_file.read()
+        vector = await embedder.embed_image_bytes_async(data)
+        query_filter = _build_filter(str(date) if date else None, str(sensor) if sensor else None)
+        scored = await store.run_sync(
+            store.search,
+            vector,
+            top_k=top_k,
+            query_filter=query_filter,
+        )
+        return SearchResponse(
+            mode="image",
+            query=getattr(uploaded_file, "filename", "uploaded_image.png"),
+            top_k=top_k,
+            results=_to_hits(scored),
+        )
+    else:
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+        image_path = body.get("image_path")
+        tile_id = body.get("tile_id")
+        top_k = int(body.get("top_k", settings.SEARCH_DEFAULT_TOP_K))
+        date = body.get("date")
+        sensor = body.get("sensor")
+
+        if image_path:
+            from pathlib import Path
+            import asyncio
+            p = Path(image_path)
+            if not p.exists():
+                raise HTTPException(status_code=404, detail=f"Image not found: {image_path}")
+            loop = asyncio.get_running_loop()
+            vector = await loop.run_in_executor(None, embedder.embed_image_path, str(p))
+            query_filter = _build_filter(date, sensor)
+            scored = await store.run_sync(
+                store.search,
+                vector,
+                top_k=top_k,
+                query_filter=query_filter,
+            )
+            return SearchResponse(
+                mode="image",
+                query=str(image_path),
+                top_k=top_k,
+                results=_to_hits(scored),
+            )
+        elif tile_id:
+            return await search_similar_tiles(SimilarTileSearchRequest(tile_id=tile_id, top_k=top_k))
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Request must contain either an uploaded 'file', 'image_path', or 'tile_id'.",
+            )
+
+
 @router.post("/image-upload", response_model=SearchResponse)
 async def search_by_image_upload(
     file: UploadFile = File(...),

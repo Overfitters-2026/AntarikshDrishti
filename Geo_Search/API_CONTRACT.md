@@ -206,6 +206,7 @@
   9. Computes drift: $\text{drift} = \max(0.0, 1.0 - \text{sim})$.
   10. Computes confidence: $\text{confidence} = \min(1.0, \frac{\text{drift}}{\text{drift\_threshold}})$.
   11. Inserts candidates into SQLite `review_queue` table and registers rows in SQLite `tile_audit` ledger.
+  12. **Random Forest Feature Set (7 Features)**: The loaded `data/models/rf_false_alarm.joblib` model expects exactly 7 scalar features in order: `['drift', 'similarity', 'cloud_t1', 'cloud_t2', 'days_between', 'month_t1', 'month_t2']`. It outputs `P(Real Change)` vs `P(False Alarm)` with a validated ~0.9077 separation gap.
 * **Output Status**: **REAL COMPUTED OUTPUT (OpenCLIP Semantic Embedding Drift + Random Forest False-Alarm Suppression)**.
   * **Critical Architecture Note**: The pipeline implements **OpenCLIP embedding-drift detection with histogram normalization, cloud/shadow masking, and Random Forest false-alarm suppression (trained on hand-labeled Mumbai change/no-change examples)**. It does not run TinyCD.
 

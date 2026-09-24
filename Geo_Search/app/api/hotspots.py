@@ -4,7 +4,7 @@ import asyncio
 import os
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.models.tile_db import get_anomalous_tiles, record_tile, update_tile_status
@@ -222,3 +222,86 @@ async def update_hotspot_status(hotspot_id: str, payload: HotspotStatusUpdate) -
 
     updated_row = {**row, "status": payload.status}
     return _hotspot_from_row(updated_row, record_payload)
+
+
+@router.get("/hotspots/{hotspot_id}/similar")
+@router.get("/v1/hotspots/{hotspot_id}/similar")
+async def get_similar_hotspots(
+    hotspot_id: str,
+    top_k: int = Query(default=6, ge=1, le=50),
+) -> dict[str, Any]:
+    """
+    Visual similarity search: looks up the embedding of the query hotspot/tile in Qdrant
+    and performs cosine ANN vector search to find structurally similar geographical locations.
+    """
+    store = get_qdrant_store()
+
+    candidate_ids = [hotspot_id]
+    if "__" in hotspot_id:
+        p1, p2 = hotspot_id.split("__", 1)
+        candidate_ids = [p2, p1, hotspot_id]
+
+    record = None
+    matched_id = None
+    for tid in candidate_ids:
+        rec = await store.run_sync(store.get_by_tile_id, tid)
+        if rec and rec.vector:
+            record = rec
+            matched_id = tid
+            break
+
+    query_vector = None
+    if record and record.vector:
+        query_vector = list(record.vector)
+    else:
+        rows = await get_anomalous_tiles(limit=1000)
+        row = next((item for item in rows if str(item.get("id")) == hotspot_id), None)
+        if row and row.get("image_path") and os.path.exists(row["image_path"]):
+            from app.ml.embedder import get_embedder
+            embedder = get_embedder()
+            import asyncio
+            loop = asyncio.get_running_loop()
+            query_vector = await loop.run_in_executor(None, embedder.embed_image_path, str(row["image_path"]))
+            matched_id = hotspot_id
+
+    if query_vector is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Visual vector embedding not found in Qdrant for hotspot: {hotspot_id}",
+        )
+
+    limit = top_k + 5
+    scored = await store.run_sync(
+        store.search,
+        query_vector,
+        top_k=limit,
+    )
+
+    hits = []
+    for sp in scored:
+        payload = sp.payload or {}
+        tid = str(payload.get("tile_id", ""))
+        if tid not in candidate_ids:
+            bbox = payload.get("bbox", {})
+            lat, lng = _bbox_center(bbox if isinstance(bbox, dict) else None)
+            hits.append({
+                "score": float(sp.score),
+                "tile_id": tid,
+                "bbox": bbox,
+                "date": str(payload.get("date", "")),
+                "sensor": str(payload.get("sensor", "")),
+                "image_path": str(payload.get("image_path", "")),
+                "lat": lat,
+                "lng": lng,
+            })
+            if len(hits) >= top_k:
+                break
+
+    return {
+        "status": "success",
+        "query_hotspot_id": hotspot_id,
+        "matched_tile_id": matched_id,
+        "top_k": top_k,
+        "total_results": len(hits),
+        "results": hits,
+    }
