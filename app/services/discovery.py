@@ -80,7 +80,7 @@ def _get_theme_embeddings() -> list[tuple[str, np.ndarray]]:
 
 def cluster_tiles_unsupervised(
     *,
-    num_clusters: int = 5,
+    num_clusters: int = 4,
     min_cluster_size: int = 3,
     method: str = "kmeans",
 ) -> dict[str, Any]:

@@ -12,14 +12,14 @@ router = APIRouter(prefix="/discovery", tags=["discovery"])
 
 
 class ClusterRequest(BaseModel):
-    num_clusters: int = Field(default=5, ge=2, le=20)
+    num_clusters: int = Field(default=4, ge=2, le=20)
     min_cluster_size: int = Field(default=3, ge=2, le=50)
     method: str = Field(default="kmeans", description="kmeans or hdbscan")
 
 
 @router.get("/cluster")
 async def get_clusters(
-    num_clusters: int = Query(default=5, ge=2, le=20),
+    num_clusters: int = Query(default=4, ge=2, le=20),
     min_cluster_size: int = Query(default=3, ge=2, le=50),
     method: str = Query(default="kmeans"),
 ) -> dict[str, Any]:

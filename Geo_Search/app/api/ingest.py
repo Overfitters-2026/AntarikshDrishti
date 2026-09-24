@@ -312,10 +312,26 @@ async def clean_qdrant_points(store: QdrantStore = Depends(get_qdrant_store)):
         else:
             seen_tile_ids.add(tid)
 
-    if ids_to_delete:
+    with store._io_lock:
+        if ids_to_delete:
+            store._client.delete(
+                collection_name=store.collection_name,
+                points_selector=qmodels.PointIdsList(points=ids_to_delete),
+                wait=True,
+            )
         store._client.delete(
             collection_name=store.collection_name,
-            points_selector=qmodels.PointIdsList(points=ids_to_delete),
+            points_selector=qmodels.FilterSelector(
+                filter=qmodels.Filter(
+                    must_not=[
+                        qmodels.FieldCondition(
+                            key="tile_id",
+                            match=qmodels.MatchText(text="mumbai"),
+                        )
+                    ]
+                )
+            ),
+            wait=True,
         )
 
     return {
