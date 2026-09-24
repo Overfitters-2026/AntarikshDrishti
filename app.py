@@ -1,9 +1,9 @@
 """
 Hugging Face Spaces Entrypoint for AntarikshDrishti.
-Runs on free ZeroGPU hardware tier with Gradio SDK.
+Runs on the free CPU tier (2 vCPU · 16 GB RAM) with Gradio SDK.
 Serves the unified full-stack platform:
 - Interactive React Workstation UI (embedded full-screen via /ui/index.html)
-- ZeroGPU @spaces.GPU event integration
+- Quick Semantic Search & System Diagnostics
 - Full REST APIs (/api/v1)
 - Multi-spectral preview layers (/storage/tiles)
 """
@@ -47,19 +47,6 @@ if ui_dist_dir.exists():
         async def icons():
             return FileResponse(str(icons_file))
 
-# ZeroGPU SDK integration
-try:
-    import spaces
-except ImportError:
-    class spaces:
-        @staticmethod
-        def GPU(func=None, duration=None):
-            def decorator(f):
-                return f
-            if func is not None:
-                return decorator(func)
-            return decorator
-
 # Compatibility patch for huggingface_hub >= 0.25 where HfFolder was removed
 try:
     import huggingface_hub
@@ -83,11 +70,9 @@ except Exception:
 
 import gradio as gr
 
-@spaces.GPU(duration=60)
-def gpu_semantic_search(query: str, top_k: int = 4) -> str:
+def semantic_search_query(query: str, top_k: int = 4) -> str:
     """
-    ZeroGPU registered function.
-    Executes high-dimensional OpenCLIP ViT-B/16 text embedding and vector search.
+    Executes high-dimensional OpenCLIP ViT-B/16 text embedding and vector search on CPU.
     """
     if not query or not query.strip():
         query = "port container terminal ships"
@@ -101,7 +86,7 @@ def gpu_semantic_search(query: str, top_k: int = 4) -> str:
         query_vector = embedder.embed_text(query.strip())
         results = store.search(vector=query_vector, top_k=top_k)
         
-        out = [f"### 🛰️ ZeroGPU Search Results for: '{query}'\n"]
+        out = [f"### 🛰️ Search Results for: '{query}'\n"]
         for i, hit in enumerate(results, 1):
             tile_id = hit.payload.get("tile_id", "unknown")
             score = round(hit.score, 4)
@@ -111,12 +96,7 @@ def gpu_semantic_search(query: str, top_k: int = 4) -> str:
     except Exception as exc:
         return f"Search executed (Status: Online). Details: {str(exc)}"
 
-@spaces.GPU(duration=30)
-def init_zerogpu(seed_input: str = "") -> str:
-    """ZeroGPU startup watchdog ping attached to demo.load."""
-    return "ZeroGPU A100 Operational"
-
-# Build Gradio Blocks with unified mission control and direct ZeroGPU workbench
+# Build Gradio Blocks with unified mission control and direct workbench
 with gr.Blocks(
     title="AntarikshDrishti - Satellite Intelligence Platform",
     css="""
@@ -127,13 +107,13 @@ with gr.Blocks(
     fill_height=True,
 ) as demo:
     with gr.Tabs():
-        with gr.Tab("🛰️ Full Workstation (React UI)"):
+        with gr.Tab("🛰️ Mission Control Workstation (React UI)"):
             gr.HTML(
                 '<iframe src="/ui/index.html" style="width:100%; height:96vh; border:none; margin:0; padding:0; display:block;"></iframe>'
             )
-        with gr.Tab("⚡ ZeroGPU A100 Quick Query & Health"):
-            gr.Markdown("### 🚀 ZeroGPU Hardware Acceleration Testbench")
-            gr.Markdown("Type a natural-language semantic query to test real-time OpenCLIP vector similarity on Nvidia A100:")
+        with gr.Tab("⚡ Quick Semantic Query & Diagnostics"):
+            gr.Markdown("### 🛰️ Fast Semantic Search Testbench")
+            gr.Markdown("Type a natural-language semantic query to test real-time OpenCLIP vector similarity:")
             with gr.Row():
                 query_input = gr.Textbox(
                     label="Semantic Query Prompt",
@@ -141,21 +121,14 @@ with gr.Blocks(
                     placeholder="e.g. dense urban residential, coastal mangroves, runways",
                     scale=4,
                 )
-                search_btn = gr.Button("🔍 Run ZeroGPU Search", variant="primary", scale=1)
-            results_output = gr.Markdown("Click 'Run ZeroGPU Search' to query the Sentinel-2 vector index.")
+                search_btn = gr.Button("🔍 Run Search", variant="primary", scale=1)
+            results_output = gr.Markdown("Click 'Run Search' to query the Sentinel-2 vector index.")
             
             search_btn.click(
-                fn=gpu_semantic_search,
+                fn=semantic_search_query,
                 inputs=[query_input],
                 outputs=[results_output],
             )
-
-    # Watchdog hidden trigger for startup scanner
-    watchdog_trigger = gr.Textbox(visible=False)
-    demo.load(fn=init_zerogpu, inputs=[watchdog_trigger], outputs=[watchdog_trigger])
-
-# Enable ZeroGPU task queue
-demo.queue()
 
 # Mount Gradio app onto FastAPI at root /
 app = gr.mount_gradio_app(fastapi_app, demo, path="/")
@@ -165,4 +138,5 @@ if __name__ == "__main__":
     # Hugging Face Spaces exposes port 7860 by default
     port = int(os.environ.get("PORT", 7860))
     uvicorn.run(app, host="0.0.0.0", port=port)
+
 
