@@ -3,9 +3,6 @@ __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
-*.db
-*.sqlite
-*.sqlite3
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
@@ -24,9 +21,12 @@ Geo_Search/venv/
 
 # Node / Vite
 **/node_modules/
-**/dist/
 **/.vite/
 **/*.local
+
+# Keep the production built UI assets so cloud deployment works without Node.js
+!geo_search-ui/dist/
+!geo_search-ui/dist/**
 
 # Logs
 *.log
@@ -34,30 +34,12 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
-lerna-debug.log*
 
 # OS / editor
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
-
-# Large binaries & generated tiles
-data/
-Geo_Search/data/
-storage/raw_geotiff/*
-!storage/raw_geotiff/.gitkeep
-storage/tiles/*
-!storage/tiles/.gitkeep
-storage/qdrant_db/*
-!storage/qdrant_db/.gitkeep
-Geo_Search/storage/raw_geotiff/*
-!Geo_Search/storage/raw_geotiff/.gitkeep
-Geo_Search/storage/tiles/*
-!Geo_Search/storage/tiles/.gitkeep
-Geo_Search/storage/qdrant_db/*
-!Geo_Search/storage/qdrant_db/.gitkeep
-Geo_Search/storage/*.db
 
 # Legacy / extraneous folders
 app_legacy/

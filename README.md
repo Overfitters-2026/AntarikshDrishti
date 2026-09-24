@@ -1,3 +1,16 @@
+---
+title: AntarikshDrishti - Satellite Intelligence Platform
+emoji: 🛰️
+colorFrom: blue
+colorTo: indigo
+sdk: gradio
+sdk_version: 4.44.0
+app_file: app.py
+pinned: false
+license: mit
+short_description: Multi-Spectral Satellite Semantic Search & Change Intelligence
+---
+
 # AntarikshDrishti
 
 Offline-first AI platform for semantic satellite image search, unsupervised discovery, multi-temporal change detection, and analyst review for **Smart India Hackathon Problem Statement 26227**.
