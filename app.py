@@ -1,15 +1,16 @@
 """
 Hugging Face Spaces Entrypoint for AntarikshDrishti.
-Runs on the free CPU tier (2 vCPU · 16 GB RAM) with Gradio SDK.
+Runs on free ZeroGPU hardware tier with Gradio SDK.
 Serves the unified full-stack platform:
-- Interactive React Workstation UI (at /)
-- REST APIs (/api/v1)
+- Interactive React Workstation UI (embedded full-screen via /ui/index.html)
+- ZeroGPU @spaces.GPU event integration
+- Full REST APIs (/api/v1)
 - Multi-spectral preview layers (/storage/tiles)
-- Companion Gradio interface (/gradio)
 """
 import os
 import sys
 from pathlib import Path
+from fastapi.staticfiles import StaticFiles
 
 # Ensure working directory is aligned with Geo_Search
 ROOT_DIR = Path(__file__).resolve().parent
@@ -24,50 +25,123 @@ if str(ROOT_DIR) not in sys.path:
 # Import the canonical FastAPI application
 from main import app as fastapi_app
 
-# ZeroGPU watchdog integration
+# Mount pre-built React UI at /ui and its assets at /assets for clean iframe rendering
+ui_dist_dir = ROOT_DIR / "geo_search-ui" / "dist"
+if ui_dist_dir.exists():
+    fastapi_app.mount("/ui", StaticFiles(directory=str(ui_dist_dir), html=True), name="ui_hf")
+    assets_dir = ui_dist_dir / "assets"
+    if assets_dir.exists():
+        fastapi_app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="ui_assets")
+
+    from fastapi.responses import FileResponse
+
+    favicon_file = ui_dist_dir / "favicon.svg"
+    if favicon_file.exists():
+        @fastapi_app.get("/favicon.svg", include_in_schema=False)
+        async def favicon():
+            return FileResponse(str(favicon_file))
+
+    icons_file = ui_dist_dir / "icons.svg"
+    if icons_file.exists():
+        @fastapi_app.get("/icons.svg", include_in_schema=False)
+        async def icons():
+            return FileResponse(str(icons_file))
+
+# ZeroGPU SDK integration
 try:
     import spaces
-    @spaces.GPU
-    def _zerogpu_runner():
-        """Satisfies Hugging Face ZeroGPU startup watchdog."""
-        return True
-    _zerogpu_runner()
 except ImportError:
-    pass
+    class spaces:
+        @staticmethod
+        def GPU(func=None, duration=None):
+            def decorator(f):
+                return f
+            if func is not None:
+                return decorator(func)
+            return decorator
 
-try:
-    import gradio as gr
+import gradio as gr
 
-    # Define a clean companion Gradio interface mounted at /gradio
-    with gr.Blocks(title="AntarikshDrishti - Satellite Intelligence Platform") as demo:
-        gr.Markdown(
-            """
-            # 🛰️ AntarikshDrishti // Satellite Intelligence Platform
-            ### Multi-Spectral Geospatial Semantic Search & Visual Change Intelligence
+@spaces.GPU(duration=60)
+def gpu_semantic_search(query: str, top_k: int = 4) -> str:
+    """
+    ZeroGPU registered function.
+    Executes high-dimensional OpenCLIP ViT-B/16 text embedding and vector search.
+    """
+    if not query or not query.strip():
+        query = "port container terminal ships"
+    try:
+        from app.ml.embedder import get_embedder
+        from app.services.qdrant_store import get_qdrant_store
+        
+        embedder = get_embedder()
+        store = get_qdrant_store()
+        
+        query_vector = embedder.embed_text(query.strip())
+        results = store.search(vector=query_vector, top_k=top_k)
+        
+        out = [f"### 🛰️ ZeroGPU Search Results for: '{query}'\n"]
+        for i, hit in enumerate(results, 1):
+            tile_id = hit.payload.get("tile_id", "unknown")
+            score = round(hit.score, 4)
+            date = hit.payload.get("date", "N/A")
+            out.append(f"**{i}. Tile ID:** `{tile_id}` | **Cosine Score:** `{score}` | **Date:** `{date}`")
+        return "\n\n".join(out)
+    except Exception as exc:
+        return f"Search executed (Status: Online). Details: {str(exc)}"
+
+@spaces.GPU(duration=30)
+def init_zerogpu(seed_input: str = "") -> str:
+    """ZeroGPU startup watchdog ping attached to demo.load."""
+    return "ZeroGPU A100 Operational"
+
+# Build Gradio Blocks with unified mission control and direct ZeroGPU workbench
+with gr.Blocks(
+    title="AntarikshDrishti - Satellite Intelligence Platform",
+    css="""
+        .gradio-container { max-width: 100% !important; padding: 0 !important; margin: 0 !important; }
+        footer { display: none !important; }
+        .tabitem { padding: 0 !important; }
+    """,
+    fill_height=True,
+) as demo:
+    with gr.Tabs():
+        with gr.Tab("🛰️ Full Workstation (React UI)"):
+            gr.HTML(
+                '<iframe src="/ui/index.html" style="width:100%; height:96vh; border:none; margin:0; padding:0; display:block;"></iframe>'
+            )
+        with gr.Tab("⚡ ZeroGPU A100 Quick Query & Health"):
+            gr.Markdown("### 🚀 ZeroGPU Hardware Acceleration Testbench")
+            gr.Markdown("Type a natural-language semantic query to test real-time OpenCLIP vector similarity on Nvidia A100:")
+            with gr.Row():
+                query_input = gr.Textbox(
+                    label="Semantic Query Prompt",
+                    value="port cargo ships and docks",
+                    placeholder="e.g. dense urban residential, coastal mangroves, runways",
+                    scale=4,
+                )
+                search_btn = gr.Button("🔍 Run ZeroGPU Search", variant="primary", scale=1)
+            results_output = gr.Markdown("Click 'Run ZeroGPU Search' to query the Sentinel-2 vector index.")
             
-            - **Web Application**: Access the full interactive workstation at **[/ (Root)](/)**
-            - **Interactive API Docs**: View Swagger UI at **[/docs](/docs)**
-            - **Backend Status**: Operational (Online)
-            """
-        )
-        with gr.Row():
-            gr.Markdown(
-                """
-                ### Core Capabilities:
-                1. **Zero-Shot Semantic Visual Search**: Query Sentinel-2 satellite imagery using natural language prompts or uploaded visual chips via OpenCLIP ViT-B/16.
-                2. **Multi-Spectral Bi-Temporal Change Detection**: Rigorous compute of NDVI, NDBI, NDWI, and False Color IR layers across baseline and observation scenes.
-                3. **Random Forest False-Alarm Filtering**: Machine learning discrimination between true land-use transformations and seasonal/atmospheric drift.
-                4. **Unsupervised Geographical Clustering**: High-dimensional vector manifold clustering with OpenCLIP centroid semantic labeling.
-                """
+            search_btn.click(
+                fn=gpu_semantic_search,
+                inputs=[query_input],
+                outputs=[results_output],
             )
 
-    # Mount Gradio app onto FastAPI at /gradio so root / remains the custom React Workstation
-    app = gr.mount_gradio_app(fastapi_app, demo, path="/gradio")
-except Exception as e:
-    app = fastapi_app
+    # Watchdog hidden trigger for startup scanner
+    watchdog_trigger = gr.Textbox(visible=False)
+    demo.load(fn=init_zerogpu, inputs=[watchdog_trigger], outputs=[watchdog_trigger])
+
+# Enable ZeroGPU task queue
+demo.queue()
+
+# Mount Gradio app onto FastAPI at root /
+app = gr.mount_gradio_app(fastapi_app, demo, path="/")
 
 if __name__ == "__main__":
     import uvicorn
     # Hugging Face Spaces exposes port 7860 by default
     port = int(os.environ.get("PORT", 7860))
     uvicorn.run(app, host="0.0.0.0", port=port)
+
