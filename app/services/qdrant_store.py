@@ -14,13 +14,31 @@ _store: Optional["QdrantStore"] = None
 _store_lock = threading.Lock()
 
 
+from pathlib import Path
+import shutil
+
 class QdrantStore:
     def __init__(self) -> None:
         settings.ensure_dirs()
         self.collection_name = settings.QDRANT_COLLECTION
+        self._clean_lfs_pointers()
         self._client = QdrantClient(path=str(settings.QDRANT_PATH))
         self._io_lock = threading.RLock()
         self._ensure_collection()
+
+    def _clean_lfs_pointers(self) -> None:
+        q_dir = Path(settings.QDRANT_PATH)
+        if q_dir.exists():
+            for p in q_dir.rglob("*.sqlite"):
+                if p.is_file() and p.stat().st_size < 1000:
+                    try:
+                        with open(p, "rb") as f:
+                            if f.read(50).startswith(b"version https://git-lfs"):
+                                shutil.rmtree(q_dir, ignore_errors=True)
+                                settings.ensure_dirs()
+                                break
+                    except Exception:
+                        pass
 
     def _ensure_collection(self) -> None:
         with self._io_lock:

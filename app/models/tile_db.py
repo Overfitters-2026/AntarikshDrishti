@@ -10,9 +10,28 @@ async def _column_exists(db: aiosqlite.Connection, table: str, column: str) -> b
     return any(col[1] == column for col in columns)
 
 
+def _is_lfs_pointer(path: Path) -> bool:
+    if not path.exists() or not path.is_file():
+        return False
+    try:
+        if path.stat().st_size < 1000:
+            with open(path, "rb") as f:
+                header = f.read(50)
+                return header.startswith(b"version https://git-lfs")
+    except Exception:
+        pass
+    return False
+
+
 async def init_db():
     """Initializes the SQLite audit database and ensures required directories exist."""
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    if _is_lfs_pointer(DB_PATH):
+        try:
+            DB_PATH.unlink()
+        except Exception:
+            pass
+
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             """
@@ -45,6 +64,64 @@ async def init_db():
         for col_name, col_type in new_columns:
             if not await _column_exists(db, "tile_audit", col_name):
                 await db.execute(f"ALTER TABLE tile_audit ADD COLUMN {col_name} {col_type}")
+
+        cursor = await db.execute("SELECT COUNT(*) FROM tile_audit")
+        row_count = (await cursor.fetchone())[0]
+        if row_count == 0:
+            default_candidates = [
+                (
+                    "mumbai_2023-12-08_s2_r256_c256_2023-12-08__mumbai_2024-12-17_s2_r256_c256_2024-12-17",
+                    "/storage/tiles/mumbai_cand1_high_change_2024-12-17_after.png",
+                    "detected-change",
+                    1,
+                    0.5999,
+                    "pending",
+                    "Airport runway & terminal infrastructure baseline (2023-12-08)",
+                    "Runway expansion & taxiway construction activity (2024-12-17)",
+                    "/storage/tiles/mumbai_cand1_high_change_2023-12-08_before.png",
+                    "/storage/tiles/mumbai_cand1_high_change_2024-12-17_after.png",
+                    "Sentinel-2 (L2A)",
+                    "2024-12-17",
+                ),
+                (
+                    "mumbai_2023-12-08_s2_r0_c256_2023-12-08__mumbai_2024-12-17_s2_r0_c256_2024-12-17",
+                    "/storage/tiles/mumbai_cand2_coastal_change_2024-12-17_after.png",
+                    "coastal-change",
+                    2,
+                    0.2416,
+                    "pending",
+                    "Intertidal mudflats & coastal baseline (2023-12-08)",
+                    "Coastal road reclamation & seawall progress (2024-12-17)",
+                    "/storage/tiles/mumbai_cand2_coastal_change_2023-12-08_before.png",
+                    "/storage/tiles/mumbai_cand2_coastal_change_2024-12-17_after.png",
+                    "Sentinel-2 (L2A)",
+                    "2024-12-17",
+                ),
+                (
+                    "mumbai_2023-12-08_s2_r512_c256_2023-12-08__mumbai_2024-12-17_s2_r512_c256_2024-12-17",
+                    "/storage/tiles/mumbai_cand3_urban_change_2024-12-17_after.png",
+                    "urban-change",
+                    3,
+                    0.2051,
+                    "pending",
+                    "Open parcel & vegetative cover (2023-12-08)",
+                    "High-density building foundation development (2024-12-17)",
+                    "/storage/tiles/mumbai_cand3_urban_change_2023-12-08_before.png",
+                    "/storage/tiles/mumbai_cand3_urban_change_2024-12-17_after.png",
+                    "Sentinel-2 (L2A)",
+                    "2024-12-17",
+                ),
+            ]
+            await db.executemany(
+                """
+                INSERT OR IGNORE INTO tile_audit (
+                    id, image_path, primary_tag, cluster, anomaly_score, status,
+                    before_desc, after_desc, before_image_path, after_image_path,
+                    sensor, date
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                default_candidates
+            )
 
         await db.commit()
 

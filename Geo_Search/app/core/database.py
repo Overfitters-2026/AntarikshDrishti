@@ -9,7 +9,20 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from app.core.config import settings
 
+from pathlib import Path
+
+def _clean_lfs_pointer_db():
+    db_file = Path("data/review.db")
+    if db_file.exists() and db_file.is_file() and db_file.stat().st_size < 1000:
+        try:
+            with open(db_file, "rb") as f:
+                if f.read(50).startswith(b"version https://git-lfs"):
+                    db_file.unlink()
+        except Exception:
+            pass
+
 def _create_engine():
+    _clean_lfs_pointer_db()
     kwargs: dict = {"echo": settings.DB_ECHO}
     if settings.DATABASE_URL.startswith("sqlite"):
         kwargs["connect_args"] = {"check_same_thread": False}
