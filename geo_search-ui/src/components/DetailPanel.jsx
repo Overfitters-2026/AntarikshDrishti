@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { API_BASE_URL } from '../api/config.js';
+import { exportProvenance } from '../api/backend.js';
 
 export default function DetailPanel({
   selectedHotspot,
@@ -11,8 +12,41 @@ export default function DetailPanel({
   backendConnected = false,
   hotspotsCount = 0,
   onOpenSpectralView,
+  onSelectCandidate,
+  allHotspots = [],
 }) {
-  const [activeImageTab, setActiveImageTab] = useState('split'); // 'split' | 'before' | 'after'
+    const [activeImageTab, setActiveImageTab] = useState('split'); // 'split' | 'before' | 'after'
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportNotice, setExportNotice] = useState(null);
+
+  const handleExportProvenance = async () => {
+    if (!selectedHotspot?.id) return;
+    setIsExporting(true);
+    setExportNotice(null);
+    try {
+      const res = await exportProvenance(selectedHotspot.id);
+      setExportNotice(`Exported: ${res.filename || 'provenance.json'}`);
+      setTimeout(() => setExportNotice(null), 4000);
+    } catch (err) {
+      console.error('Failed to export provenance:', err);
+      try {
+        const directUrl = `${API_BASE_URL}/api/v1/analyst/export/${encodeURIComponent(selectedHotspot.id)}`;
+        const a = document.createElement('a');
+        a.href = directUrl;
+        a.download = `provenance_hotspot_${selectedHotspot.id}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setExportNotice('Export initiated');
+        setTimeout(() => setExportNotice(null), 4000);
+      } catch (e2) {
+        setExportNotice('Export failed');
+        setTimeout(() => setExportNotice(null), 4000);
+      }
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   // Explicit connected but empty state
   if (!selectedHotspot && backendConnected && hotspotsCount === 0) {
@@ -112,9 +146,13 @@ export default function DetailPanel({
     ? `${rawConfidence.toFixed(4)} (${confidencePercent.toFixed(2)}%)`
     : 'Not available';
 
+  const earliestChangeText = (selectedHotspot.earliest_change_observed_date || selectedHotspot.earliestChangeObservedDate)
+    || 'No change detected within confidence threshold';
+
   const metadata = [
     ['Sensor', selectedHotspot.sensor || 'Not available'],
     ['Date', selectedHotspot.date || 'Not available'],
+    ['Earliest Change', earliestChangeText],
     ['Coordinates', coordinatesDisplay],
     ['Cloud %', cloudDisplay],
     ['Confidence (RF)', confidenceDisplay],
@@ -167,6 +205,46 @@ export default function DetailPanel({
         )}
       </div>
 
+      {/* Quick Candidate Switcher */}
+      <div className="candidate-selector-bar" style={{ display: 'flex', gap: '6px', marginBottom: '12px' }}>
+        {[
+          { key: 'cand1', label: 'Candidate 1 (Runway)', match: 'r256_c256' },
+          { key: 'cand2', label: 'Candidate 2 (Coastal)', match: 'r0_c256' },
+          { key: 'cand3', label: 'Candidate 3 (Urban)', match: 'r512_c256' },
+        ].map((c) => {
+          const isSelected = selectedHotspot?.id && (selectedHotspot.id.includes(c.match) || selectedHotspot.id.includes(c.key));
+          return (
+            <button
+              key={c.key}
+              type="button"
+              id={`btn-${c.key}`}
+              className={`candidate-pill-btn ${isSelected ? 'active' : ''}`}
+              style={{
+                flex: 1,
+                padding: '6px 4px',
+                fontSize: '11px',
+                fontWeight: isSelected ? '700' : '500',
+                background: isSelected ? '#1e3a8a' : '#1e293b',
+                color: isSelected ? '#38bdf8' : '#94a3b8',
+                border: isSelected ? '1px solid #38bdf8' : '1px solid #334155',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                textAlign: 'center',
+                transition: 'all 0.15s ease',
+              }}
+              onClick={() => {
+                if (allHotspots && onSelectCandidate) {
+                  const target = allHotspots.find((h) => h.id.includes(c.match) || h.id.includes(c.key));
+                  if (target) onSelectCandidate(target);
+                }
+              }}
+            >
+              {c.label}
+            </button>
+          );
+        })}
+      </div>
+
       {/* Non-colliding hotspot target badge & classification */}
       <div className="hotspot-identity-card">
         <div className="hotspot-id-box">
@@ -192,7 +270,7 @@ export default function DetailPanel({
 
       {/* Expandable Why This Confidence Score Section */}
       <div className="confidence-breakdown-wrapper">
-        <details className="confidence-breakdown-details">
+        <details open className="confidence-breakdown-details">
           <summary className="confidence-breakdown-summary">
             <span className="summary-left">
               <span className="summary-icon">⚖️</span>
@@ -241,6 +319,26 @@ export default function DetailPanel({
                       <td className="data">{factors.days_between !== undefined ? `${factors.days_between} days` : 'N/A'}</td>
                     </tr>
                     <tr>
+                      <th scope="row">Earliest Change</th>
+                      <td
+                        className="data highlight"
+                        style={{
+                          color: (selectedHotspot.earliest_change_observed_date || selectedHotspot.earliestChangeObservedDate)
+                            ? '#38bdf8'
+                            : '#fbbf24',
+                          fontWeight: (selectedHotspot.earliest_change_observed_date || selectedHotspot.earliestChangeObservedDate)
+                            ? '600'
+                            : '500',
+                          fontSize: (selectedHotspot.earliest_change_observed_date || selectedHotspot.earliestChangeObservedDate)
+                            ? 'inherit'
+                            : '12px',
+                        }}
+                      >
+                        {(selectedHotspot.earliest_change_observed_date || selectedHotspot.earliestChangeObservedDate) ||
+                          'No change detected within confidence threshold'}
+                      </td>
+                    </tr>
+                    <tr>
                       <th scope="row">Seasonal Months</th>
                       <td className="data">
                         {factors.month_t1 !== undefined && factors.month_t2 !== undefined
@@ -258,6 +356,49 @@ export default function DetailPanel({
                     </tr>
                   </tbody>
                 </table>
+                {(() => {
+                  const pairwiseList = selectedHotspot.pairwise_drift_analysis || selectedHotspot.pairwiseDriftAnalysis;
+                  if (!pairwiseList || pairwiseList.length === 0) return null;
+                  return (
+                    <div className="pairwise-analysis-section" style={{ marginTop: '16px', borderTop: '1px solid #1e293b', paddingTop: '12px' }}>
+                      <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#94a3b8', marginBottom: '8px', fontWeight: '600' }}>
+                        Multi-Temporal Sequence Breakdown (3+ Scenes)
+                      </div>
+                      <table className="factor-table" style={{ width: '100%', fontSize: '11px', borderCollapse: 'collapse' }}>
+                        <thead>
+                          <tr style={{ color: '#64748b', textAlign: 'left', borderBottom: '1px solid #334155' }}>
+                            <th style={{ padding: '4px' }}>Interval</th>
+                            <th style={{ padding: '4px' }}>Raw Drift</th>
+                            <th style={{ padding: '4px' }}>Pipeline Drift</th>
+                            <th style={{ padding: '4px' }}>RF Conf</th>
+                            <th style={{ padding: '4px' }}>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {pairwiseList.map((item, idx) => (
+                          <tr key={idx} style={{ borderBottom: '1px solid #1e293b' }}>
+                            <td style={{ padding: '6px 4px', color: '#e2e8f0', fontWeight: '500' }}>{item.interval}</td>
+                            <td style={{ padding: '6px 4px', color: '#94a3b8' }}>{item.raw_drift !== undefined ? Number(item.raw_drift).toFixed(4) : Number(item.drift).toFixed(4)}</td>
+                            <td style={{ padding: '6px 4px', color: '#94a3b8' }}>{Number(item.drift).toFixed(4)}</td>
+                            <td style={{ padding: '6px 4px', color: item.confidence >= 0.20 ? '#38bdf8' : '#94a3b8' }}>
+                              {Number(item.confidence).toFixed(4)}
+                            </td>
+                            <td style={{ padding: '6px 4px' }}>
+                              {item.suppressed ? (
+                                <span style={{ color: '#f87171', fontSize: '10px' }}>⚠️ Suppressed ({item.suppression_reason || 'Cloud'})</span>
+                              ) : item.threshold_crossed ? (
+                                <span style={{ color: '#4ade80', fontSize: '10px', fontWeight: 'bold' }}>✓ Change Detected</span>
+                              ) : (
+                                <span style={{ color: '#94a3b8', fontSize: '10px' }}>Below Threshold</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })()}
               </div>
             ) : (
               <div className="factors-empty-state">
@@ -421,6 +562,18 @@ export default function DetailPanel({
             ⚑ Flag
           </button>
         </div>
+        <button
+          type="button"
+          className="action-btn btn-export-provenance"
+          disabled={isExporting}
+          onClick={handleExportProvenance}
+          title="Export cryptographically verifiable provenance JSON for this hotspot"
+        >
+          {isExporting ? '⏳ Exporting...' : '📄 Export Provenance'}
+        </button>
+        {exportNotice && (
+          <span className="export-status-toast">{exportNotice}</span>
+        )}
       </div>
 
       {/* Find Similar Button */}

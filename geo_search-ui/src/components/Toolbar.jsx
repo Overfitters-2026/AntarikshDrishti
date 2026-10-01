@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { setApiBaseUrl, API_BASE_URL } from '../api/config.js';
+import { setApiBaseUrl, resetApiBaseUrl, API_BASE_URL } from '../api/config.js';
 
 function utcTime() {
   return `${new Date().toISOString().slice(11, 19)} UTC`;
@@ -25,6 +25,7 @@ export default function Toolbar({
   onResetFilters,
   onOpenImageSearch,
   backendConnected,
+  onBackToLanding,
 }) {
   const [time, setTime] = useState(utcTime);
   const [searchDraft, setSearchDraft] = useState(searchQuery);
@@ -74,6 +75,31 @@ export default function Toolbar({
         </div>
         <div className="aoi-display data" title="Current Area of Interest (AOI)">
           {aoiText}
+          {onBackToLanding && (
+            <button
+              type="button"
+              onClick={onBackToLanding}
+              className="mission-landing-link"
+              title="Return to Antariksh Drishti Hero & Mission Landing Page"
+              style={{
+                marginLeft: '8px',
+                padding: '2px 7px',
+                borderRadius: '4px',
+                backgroundColor: 'rgba(6, 182, 212, 0.15)',
+                border: '1px solid rgba(6, 182, 212, 0.35)',
+                color: '#38bdf8',
+                fontSize: '11px',
+                fontWeight: '500',
+                fontFamily: 'monospace',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                cursor: 'pointer',
+              }}
+            >
+              🌐 Mission Landing
+            </button>
+          )}
         </div>
       </div>
 
@@ -137,9 +163,15 @@ export default function Toolbar({
           className={`sys-status-badge ${backendConnected ? 'connected' : 'offline'}`}
           style={{ cursor: 'pointer' }}
           onClick={() => {
-            const current = localStorage.getItem('geosentry_api_url') || (API_BASE_URL !== 'http://127.0.0.1:8000' ? API_BASE_URL : '');
-            const input = window.prompt('Connect to Backend API URL (e.g. https://your-app.onrender.com):', current);
-            if (input !== null) {
+            const current = localStorage.getItem('geosentry_api_url') || '';
+            const input = window.prompt(
+              'Backend API URL (leave blank to use local proxy at localhost:8000):',
+              current
+            );
+            if (input === null) return; // user pressed Cancel
+            if (!input.trim()) {
+              resetApiBaseUrl(); // clear stale URL → reload using Vite proxy
+            } else {
               setApiBaseUrl(input.trim());
             }
           }}

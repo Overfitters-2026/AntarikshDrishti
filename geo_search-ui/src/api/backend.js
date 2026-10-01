@@ -133,3 +133,41 @@ export async function getSpectralAnalysis(tileId) {
 }
 
 
+
+
+/**
+ * Export full provenance document for a reviewed hotspot (downloadable JSON)
+ */
+export async function exportProvenance(itemId) {
+  const url = `/api/v1/analyst/export/${encodeURIComponent(itemId)}`;
+  const response = await client.get(url, {
+    responseType: 'blob',
+    timeout: 30000,
+  });
+
+  // Extract filename from Content-Disposition header if available
+  let filename = `provenance_hotspot_${itemId}.json`;
+  const disposition = response.headers['content-disposition'] || response.headers['Content-Disposition'];
+  if (disposition) {
+    const filenameMatch = disposition.match(/filename="?([^";]+)"?/i);
+    if (filenameMatch && filenameMatch[1]) {
+      filename = filenameMatch[1];
+    }
+  }
+
+  // Trigger browser download
+  const blob = new Blob([response.data], { type: 'application/json' });
+  const downloadUrl = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.style.display = 'none';
+  a.href = downloadUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => {
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(downloadUrl);
+  }, 200);
+
+  return { success: true, filename };
+}

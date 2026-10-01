@@ -38,6 +38,7 @@ def _create_engine():
 engine = _create_engine()
 
 AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
+async_session_factory = AsyncSessionLocal
 
 
 class Base(DeclarativeBase):

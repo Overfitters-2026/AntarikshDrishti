@@ -6,6 +6,7 @@ import DetailPanel from './components/DetailPanel.jsx';
 import SystemLog from './components/SystemLog.jsx';
 import ImageSearchModal from './components/ImageSearchModal.jsx';
 import SpectralAnalysisView from './components/SpectralAnalysisView.jsx';
+import HeroLandingPage from './hero/HeroLandingPage.tsx';
 import {
   checkBackendHealth,
   getHotspots,
@@ -51,6 +52,49 @@ export default function App() {
   const [isSearchingSimilar, setIsSearchingSimilar] = useState(false);
   const [similarHotspots, setSimilarHotspots] = useState([]);
   const [logs, setLogs] = useState([]);
+
+  const [currentView, setCurrentView] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const hash = window.location.hash;
+      const path = window.location.pathname;
+      if (path === '/app' || hash === '#app') return 'app';
+    }
+    return 'hero';
+  });
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const hash = window.location.hash;
+      const path = window.location.pathname;
+      if (path === '/app' || hash === '#app') {
+        setCurrentView('app');
+      } else {
+        setCurrentView('hero');
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  const openAppView = useCallback(() => {
+    window.history.pushState({}, '', '#app');
+    setCurrentView('app');
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  }, []);
+
+  const openHeroView = useCallback(() => {
+    window.history.pushState({}, '', '#hero');
+    setCurrentView('hero');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+
+  useEffect(() => {
+    if (currentView === 'app') {
+      document.body.classList.add('in-app');
+    } else {
+      document.body.classList.remove('in-app');
+    }
+  }, [currentView]);
 
   const initialized = useRef(false);
   const didMountFilters = useRef(false);
@@ -103,6 +147,10 @@ export default function App() {
           afterDesc: candidate.after_desc || prev?.after_desc,
           confidence_factors: candidate.confidence_factors || prev?.confidence_factors,
           confidenceFactors: candidate.confidence_factors || prev?.confidenceFactors,
+          pairwise_drift_analysis: candidate.pairwise_drift_analysis || prev?.pairwise_drift_analysis,
+          pairwiseDriftAnalysis: candidate.pairwise_drift_analysis || prev?.pairwiseDriftAnalysis,
+          earliest_change_observed_date: candidate.earliest_change_observed_date !== undefined ? candidate.earliest_change_observed_date : prev?.earliest_change_observed_date,
+          earliestChangeObservedDate: candidate.earliest_change_observed_date !== undefined ? candidate.earliest_change_observed_date : prev?.earliestChangeObservedDate,
         }));
       }
     } catch (err) {
@@ -514,6 +562,10 @@ export default function App() {
     addLog(`Opening Full-Screen Spectral Analysis for tile: ${tileId}`, 'INFO');
   }, [addLog]);
 
+  if (currentView === 'hero') {
+    return <HeroLandingPage onOpenConsole={openAppView} />;
+  }
+
   return (
     <main className="app-shell" aria-label="AntarikshDrishti Satellite Intelligence Platform">
       {/* 1. TOP TOOLBAR */}
@@ -525,6 +577,7 @@ export default function App() {
         onResetFilters={resetFilters}
         onOpenImageSearch={() => setIsImageModalOpen(true)}
         backendConnected={backendConnected}
+        onBackToLanding={openHeroView}
       />
 
       {/* 2. LEFT SIDEBAR: PIPELINE & DATA BROWSER */}
@@ -574,6 +627,8 @@ export default function App() {
         backendConnected={backendConnected}
         hotspotsCount={(searchResults !== null ? searchResults : hotspots).length}
         onOpenSpectralView={handleOpenSpectralView}
+        onSelectCandidate={handleMarkerSelect}
+        allHotspots={hotspots}
       />
 
       {/* 5. BOTTOM SYSTEM LOG */}
