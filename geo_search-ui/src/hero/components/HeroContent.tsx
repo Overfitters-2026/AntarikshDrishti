@@ -109,7 +109,7 @@ export const HeroContent: React.FC<HeroContentProps> = ({
         style={{ opacity: frame4Opacity, y: frame4Y }}
         className="absolute inset-0 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto w-full flex items-center"
       >
-        <div className="w-full lg:w-1/2 text-left space-y-4 pr-0 lg:pr-8">
+        <div className="w-full lg:w-1/2 max-w-xl text-left space-y-4 pr-0 lg:pr-8 bg-slate-950/60 lg:bg-transparent backdrop-blur-sm lg:backdrop-blur-none p-5 lg:p-0 rounded-2xl border border-white/5 lg:border-none">
           <div className="flex items-center gap-2 text-xs font-mono text-cyan-400 tracking-wider uppercase">
             <Satellite className="w-4 h-4 text-cyan-400" />
             <span>THE REAL RECONNAISSANCE CHALLENGE</span>
@@ -134,12 +134,12 @@ export const HeroContent: React.FC<HeroContentProps> = ({
         </div>
       </motion.div>
 
-      {/* FRAME 5: DESCENT INTO TARGET REGION */}
+      {/* FRAME 5: EARTH ON LEFT, RIGHT STORYTELLING (NO COINCIDING / ZERO OVERLAP) */}
       <motion.div
         style={{ opacity: frame5Opacity, y: frame5Y }}
         className="absolute inset-0 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto w-full flex items-center justify-end"
       >
-        <div className="w-full lg:w-1/2 text-right space-y-4 pl-0 lg:pl-8">
+        <div className="w-full lg:w-1/2 max-w-xl text-right space-y-4 pl-0 lg:pl-8 bg-slate-950/60 lg:bg-transparent backdrop-blur-sm lg:backdrop-blur-none p-5 lg:p-0 rounded-2xl border border-white/5 lg:border-none">
           <div className="flex items-center justify-end gap-2 text-xs font-mono text-cyan-400 tracking-wider uppercase">
             <Radio className="w-4 h-4 text-cyan-400 animate-pulse" />
             <span>PRECISION OVER RECALL · VERIFIED GROUND TRUTH</span>

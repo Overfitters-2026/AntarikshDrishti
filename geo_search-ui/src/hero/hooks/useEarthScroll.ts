@@ -50,24 +50,27 @@ export function useEarthScroll(options: UseEarthScrollOptions = {}): EarthScroll
 
   // Earth Scale:
   // 0.00: 1.15 (huge initial presence)
-  // 0.18: 1.15 (fully emerged)
+  // 0.18: 1.18 (fully emerged)
   // 0.34: 1.45 (Earth dominates, covers majority of viewport)
-  // 0.52: 0.70 (settles onto right side, 45-55% width)
-  // 0.72: 0.72 (holds right composition)
-  // 0.88: 1.15 (approaching camera)
+  // 0.50: 0.70 (settles onto right side, Frame 4 text on Left)
+  // 0.72: 0.70 (settles onto left side, Frame 5 text on Right)
+  // 0.88: 1.15 (approaching camera, centered)
   // 1.00: 1.45 (diving to surface)
   const earthScale = useTransform(
     smoothProgress,
-    [0.0, 0.18, 0.34, 0.52, 0.72, 0.88, 1.0],
-    [1.15, 1.18, 1.45, 0.70, 0.72, 1.15, 1.45]
+    [0.0, 0.18, 0.34, 0.50, 0.72, 0.88, 1.0],
+    [1.15, 1.18, 1.45, 0.70, 0.70, 1.15, 1.45]
   );
 
   // Earth X position in 3D world space:
-  // Centered (0) initially and during domination -> Moves to the RIGHT (1.4) during Frame 4 & 5
+  // - Centered (0) initially and during domination
+  // - Moves to RIGHT (1.35) during Frame 4 (caption on LEFT)
+  // - Moves to LEFT (-1.35) during Frame 5 (caption on RIGHT) -> ZERO collision!
+  // - Returns to Center (0) during final descent into India
   const earthX = useTransform(
     smoothProgress,
-    [0.0, 0.34, 0.50, 0.72, 0.88, 1.0],
-    [0, 0, 1.35, 1.35, 0.6, 0]
+    [0.0, 0.34, 0.48, 0.60, 0.68, 0.82, 0.92, 1.0],
+    [0, 0, 1.35, 1.35, -1.35, -1.35, 0, 0]
   );
 
   // Earth Y position in 3D world space:
